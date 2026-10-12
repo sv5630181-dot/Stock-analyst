@@ -1,0 +1,1811 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#2955D4"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Smart Stock Analyst"><meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://query1.finance.yahoo.com https://query2.finance.yahoo.com https://cdn.jsdelivr.net; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<link rel="manifest" href="./manifest.webmanifest"><link rel="icon" href="./icon.svg" type="image/svg+xml"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<style id="privacyCss">
+html.locked main,html.locked #privacyPanel{display:none!important}
+#lockScreen,#coverScreen{position:fixed;inset:0;z-index:99999;background:var(--bg);color:var(--ink);display:none;align-items:center;justify-content:center;padding:24px;text-align:center;font-family:var(--font)}
+html.locked #lockScreen,html.covered #coverScreen{display:flex}
+#lockScreen .box{width:100%;max-width:320px;display:flex;flex-direction:column;gap:12px}
+#lockScreen h1{font-size:22px;margin:0}
+#lockScreen input{height:48px;font-size:22px;text-align:center;letter-spacing:.3em;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink)}
+#lockErr{color:var(--down);min-height:20px;font-size:14px}
+.lockIcon{font-size:44px}
+.linkbtn{background:none;border:0;color:var(--muted);text-decoration:underline;cursor:pointer;font-size:13px;padding:8px}
+#privacyPanel .prow{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--line)}
+#privacyPanel .prow:first-of-type{border-top:0}
+#privacyPanel .prow small{display:block;color:var(--muted)}
+#privacyPanel select{height:36px;border-radius:7px;border:1px solid var(--line);background:var(--surface);padding:0 8px}
+#privacyPanel input[type=checkbox]{width:22px;height:22px;flex:none}
+#privacyPanel .pinrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+#privacyPanel .pinrow input{height:38px;border-radius:7px;border:1px solid var(--line);background:var(--surface);padding:0 10px;width:130px}
+#pMsg{margin-top:8px;font-size:14px}
+html.mask-figures #tradeDesk :is(input,select,.num,td,dd,output,b,strong){filter:blur(7px);}
+html.mask-figures #tradeDesk:focus-within :is(input,select){filter:none}
+.btn.danger{border-color:var(--down);color:var(--down)}
+</style>
+<div id="lockScreen" role="dialog" aria-modal="true" aria-label="App locked"><div class="box">
+  <div class="lockIcon">🔒</div><h1>Smart Stock Analyst</h1>
+  <p class="hint" style="color:var(--muted)">Enter your PIN to unlock</p>
+  <input id="lockPin" type="password" inputmode="numeric" autocomplete="off" maxlength="8" aria-label="PIN">
+  <div id="lockErr" role="alert"></div>
+  <button class="btn primary" id="lockGo" type="button">Unlock</button>
+  <button class="linkbtn" id="lockReset" type="button">Forgot PIN? Reset app</button>
+</div></div>
+<div id="coverScreen" aria-hidden="true"><div><div class="lockIcon">📈</div><h1 style="margin:8px 0 0;font-size:20px">Smart Stock Analyst</h1></div></div>
+<script>
+// Runs immediately so a locked app never flashes its content.
+(function(){
+  var de=document.documentElement,P={};
+  try{P=JSON.parse(localStorage.getItem('ssa_privacy')||'{}')}catch(e){}
+  window.__offlineOnly=!!P.offline;
+  if(P.mask)de.classList.add('mask-figures');
+  if(P.pin&&P.pin.hash)de.classList.add('locked');
+})();
+</script>
+
+<title>Pattern Scanner</title>
+
+<style>
+/* Layout: one working column. Loader strip, outlook card with key levels, one wide chart, then pattern cards beside indicator rows. */
+:root {
+  --bg: #EDF0F3; --surface: #FFFFFF; --ink: #12202C; --muted: #566877; --line: #D8DFE6; --grid: #E7ECF1;
+  --accent: #2955D4; --accent-soft: #E4EBFB; --up: #0A8A66; --down: #CC3638; --warn: #A86300;
+  --sma20: #7B55E0; --sma50: #158CA6; --shade: rgba(41, 85, 212, .09); --neck: #A86300;
+  --font: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0B1118; --surface: #121A23; --ink: #E3EAF0; --muted: #8B9BAA; --line: #233140; --grid: #1A2632;
+    --accent: #7499FF; --accent-soft: #1B2A4D; --up: #2EC79A; --down: #F06A6D; --warn: #E6A640;
+    --sma20: #A58BFF; --sma50: #4CC3DC; --shade: rgba(116, 153, 255, .12); --neck: #E6A640; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0B1118; --surface: #121A23; --ink: #E3EAF0; --muted: #8B9BAA; --line: #233140; --grid: #1A2632;
+  --accent: #7499FF; --accent-soft: #1B2A4D; --up: #2EC79A; --down: #F06A6D; --warn: #E6A640;
+  --sma20: #A58BFF; --sma50: #4CC3DC; --shade: rgba(116, 153, 255, .12); --neck: #E6A640; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--font); font-size: 15px; line-height: 1.5; padding-inline: 16px; padding-block: 20px 40px; }
+.shell { max-width: 1120px; margin-inline: auto; display: flex; flex-direction: column; gap: 14px; }
+h1, h2, h3, p, ul, dl, dd { margin: 0; }
+h1 { font-size: 26px; font-weight: 650; letter-spacing: -.01em; text-wrap: balance; }
+h2 { font-size: 13px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+button, select, input, textarea { font: inherit; color: inherit; }
+button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible, label.btn:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.top { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: end; gap: 6px 16px; }
+.top p { color: var(--muted); max-width: 60ch; }
+.badge { font-size: 12.5px; color: var(--muted); font-family: var(--mono); min-width: 0; overflow-wrap: anywhere; }
+
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px; min-width: 0; }
+
+.loader { display: flex; flex-direction: column; gap: 10px; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.field { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.field > span { font-size: 12px; color: var(--muted); }
+.field select, .field input { height: 38px; padding-inline: 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 7px; min-width: 0; }
+.field input { width: 160px; max-width: 100%; }
+.btn { display: inline-flex; align-items: center; justify-content: center; height: 38px; padding-inline: 14px; border-radius: 7px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; font-weight: 500; }
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+:root[data-theme="dark"] .btn.primary { color: #0B1118; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .btn.primary { color: #0B1118; } }
+.btn input[type=file] { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.hint { font-size: 13px; color: var(--muted); max-width: 90ch; }
+#pasteBox { display: flex; flex-direction: column; gap: 8px; }
+#pasteBox textarea { width: 100%; min-height: 120px; padding: 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 7px; font-family: var(--mono); font-size: 12.5px; resize: vertical; }
+.msg { color: var(--down); font-size: 14px; }
+
+.outlook { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 20px; }
+.verdict { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.verdict .label { font-size: 30px; font-weight: 650; letter-spacing: -.015em; line-height: 1.1; }
+.verdict .label.bull { color: var(--up); } .verdict .label.bear { color: var(--down); }
+.gauge { position: relative; height: 10px; border-radius: 5px; background: var(--grid); margin-top: 4px; }
+.gauge::before { content: ""; position: absolute; left: 50%; top: -3px; bottom: -3px; width: 1px; background: var(--muted); }
+.gauge .fill { position: absolute; top: 0; bottom: 0; border-radius: 5px; }
+.gauge .fill.bull { background: var(--up); } .gauge .fill.bear { background: var(--down); } .gauge .fill.neutral { background: var(--muted); }
+.scale { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
+.parts { display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: 13px; color: var(--muted); }
+.parts b { color: var(--ink); font-weight: 600; }
+.why { display: flex; flex-direction: column; gap: 6px; padding-left: 18px; }
+.why li::marker { color: var(--muted); }
+.levels { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 7px 14px; align-items: baseline; }
+.kv dt { color: var(--muted); font-size: 13.5px; }
+.kv dd { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 14px; overflow-wrap: anywhere; }
+.kv dd small { color: var(--muted); font-size: 12px; margin-left: 6px; }
+.up { color: var(--up); } .down { color: var(--down); }
+.scen { display: flex; flex-direction: column; gap: 6px; font-size: 14px; padding-left: 18px; }
+
+.getdata { display: flex; flex-direction: column; gap: 8px; }
+.links { display: flex; flex-wrap: wrap; gap: 8px; }
+.links a { display: inline-flex; align-items: center; min-height: 38px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 7px; color: var(--ink); text-decoration: none; font-size: 14px; font-weight: 500; background: var(--bg); }
+.links a:hover { border-color: var(--accent); color: var(--accent); }
+.links a[aria-disabled="true"] { opacity: .5; pointer-events: none; }
+.links a small { color: var(--muted); font-weight: 400; margin-left: 6px; font-size: 12.5px; }
+.seg { max-width: 100%; overflow-x: auto; }
+.seg button { white-space: nowrap; }
+.chartHead { display: flex; flex-wrap: wrap; gap: 10px 16px; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
+.seg button { border: 0; background: transparent; padding: 6px 11px; cursor: pointer; font-size: 13px; font-weight: 500; color: var(--muted); }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
+.toggles { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; }
+.toggles label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.sw { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
+.readout { min-height: 20px; font-family: var(--mono); font-size: 12.5px; color: var(--muted); margin-bottom: 4px; overflow-wrap: anywhere; }
+.chartWrap { width: 100%; min-width: 0; }
+.chartWrap svg { display: block; width: 100%; height: auto; touch-action: pan-y; }
+svg text { font-family: var(--mono); font-size: 11px; fill: var(--muted); }
+svg .grid { stroke: var(--grid); stroke-width: 1; }
+svg .up { stroke: var(--up); fill: var(--up); } svg .down { stroke: var(--down); fill: var(--down); }
+svg .halo { stroke: var(--surface); stroke-width: 3px; paint-order: stroke; }
+svg .lbl { fill: var(--ink); font-size: 10.5px; }
+svg .swing { fill: none; stroke: var(--accent); stroke-width: 1.6; stroke-linejoin: round; }
+svg .curve { fill: none; stroke: var(--accent); stroke-width: 2; stroke-dasharray: 2 3; }
+svg .neck { stroke: var(--neck); stroke-width: 1.4; stroke-dasharray: 6 4; fill: none; }
+svg .trend { stroke: var(--accent); stroke-width: 1.5; fill: none; }
+svg .shade { fill: var(--shade); stroke: none; }
+svg .box { fill: none; stroke: var(--accent); stroke-width: 1; stroke-dasharray: 3 3; }
+svg .tgt.bull { stroke: var(--up); } svg .tgt.bear { stroke: var(--down); }
+svg .tgt { stroke-width: 1.4; stroke-dasharray: 2 4; fill: none; }
+svg .pt { fill: var(--surface); stroke: var(--accent); stroke-width: 1.6; }
+svg .ma20 { fill: none; stroke: var(--sma20); stroke-width: 1.2; } svg .ma50 { fill: none; stroke: var(--sma50); stroke-width: 1.2; }
+svg .closeline { fill: none; stroke: var(--ink); stroke-width: 1.4; }
+svg .rsiLine { fill: none; stroke: var(--ink); stroke-width: 1.2; }
+svg .lastLine { stroke: var(--muted); stroke-dasharray: 1 3; }
+svg .cross { stroke: var(--muted); stroke-width: 1; }
+
+
+.tradegrid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.tradegrid .field input,.tradegrid .field select{width:100%;min-width:0}
+.trade-head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.trade-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:8px}
+.trade-kpi{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:11px}
+.trade-kpi span{display:block;color:var(--muted);font-size:12px}
+.trade-kpi b{display:block;font:500 17px var(--mono);overflow-wrap:anywhere;margin-top:3px}
+.trade-table{width:100%;border-collapse:collapse;font-size:13px}
+.trade-table th,.trade-table td{text-align:right;padding:9px 7px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+.trade-table th:first-child,.trade-table td:first-child{text-align:left}
+.trade-table th{color:var(--muted);font-weight:600}
+.trade-note{font-size:12.5px;color:var(--muted)}
+@media(max-width:700px){.tradegrid{grid-template-columns:repeat(2,minmax(0,1fr))}.trade-table{font-size:12px}.trade-table th,.trade-table td{padding:8px 4px}}
+
+.lower { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+.plist { display: flex; flex-direction: column; gap: 10px; }
+.plist h2 { margin-top: 6px; }
+.pcard { text-align: left; width: 100%; display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 9px; background: var(--bg); cursor: pointer; }
+.pcard:hover { border-color: var(--accent); }
+.pcard[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: var(--surface); }
+.ptop { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 4px 12px; }
+.pname { font-weight: 600; font-size: 16px; }
+.chip { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 99px; border: 1px solid currentColor; }
+.chip.bull { color: var(--up); } .chip.bear { color: var(--down); } .chip.neutral { color: var(--muted); }
+.pmeta { font-size: 13px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 2px 12px; }
+.meter { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.meter .track { flex: 1; max-width: 220px; height: 6px; background: var(--grid); border-radius: 3px; overflow: hidden; }
+.meter .track i { display: block; height: 100%; background: var(--accent); }
+.pnums { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 6px 14px; }
+.pnums div { display: flex; flex-direction: column; min-width: 0; }
+.pnums span { font-size: 12px; color: var(--muted); }
+.pnums b { font-family: var(--mono); font-weight: 500; font-size: 13.5px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.pnotes { font-size: 13.5px; color: var(--muted); padding-left: 18px; display: flex; flex-direction: column; gap: 3px; }
+.empty { color: var(--muted); font-size: 14px; }
+.stats .kv dd { font-size: 13.5px; }
+.note { font-size: 12.5px; color: var(--muted); max-width: 100ch; }
+.copyRow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 2px; }
+#copyOut { width: 100%; min-height: 110px; padding: 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 7px; font-family: var(--mono); font-size: 12px; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+@media (max-width: 820px) {
+  .outlook, .lower { grid-template-columns: minmax(0, 1fr); }
+  h1 { font-size: 23px; }
+  .verdict .label { font-size: 26px; }
+}
+@media (prefers-reduced-motion: no-preference) { .gauge .fill { transition: width .35s ease, left .35s ease; } }
+</style>
+
+<main class="shell">
+  <header class="top">
+    <div>
+      <h1>Smart Stock Analyst</h1>
+      <p>Enter a ticker and fetch daily prices automatically; the scanner marks cup and handle, head and shoulders, double tops and bottoms, triangles and wedges, then reads what they imply.</p>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button class="btn" id="installAppBtn" type="button" hidden>Install app</button><div class="badge" id="srcBadge"></div></div>
+  </header>
+
+  <section class="card" aria-label="Privacy information" id="privacyNotice" style="border-color:var(--accent);background:var(--accent-soft)">
+    <h2>Privacy-first mode</h2>
+    <p style="margin-top:6px">Files you upload and pasted price data are analysed on this device; the app does not upload those files to our server. When you choose <b>Fetch &amp; analyse</b>, your stock symbol and request go to Yahoo Finance for market data. External NSE links open the official site in your browser. No account or location permission is required.</p>
+    <p class="hint" style="margin-top:6px">For the most private workflow, download a CSV from NSE and upload it here. Automatic online prices require an internet request. Excel (.xlsx) support may load its reader library from jsDelivr; saving the file as CSV avoids that extra request.</p>
+  </section>
+
+  <section class="card" id="privacyPanel" aria-label="Privacy and security settings">
+    <h2>Privacy &amp; security</h2>
+    <p class="hint" style="margin:6px 0 8px">Everything below is stored only on this phone. This app keeps no accounts, no analytics and no price history; only these settings are saved.</p>
+    <div class="prow"><div><b>App lock (PIN)</b><small id="pinState">Off</small></div><button class="btn" id="pinToggle" type="button">Set PIN</button></div>
+    <div id="pinForm" class="pinrow" hidden>
+      <input id="pinNew" type="password" inputmode="numeric" maxlength="8" placeholder="New PIN (4–8 digits)" autocomplete="off">
+      <input id="pinNew2" type="password" inputmode="numeric" maxlength="8" placeholder="Repeat PIN" autocomplete="off">
+      <button class="btn primary" id="pinSave" type="button">Save PIN</button>
+    </div>
+    <div class="prow"><div><b>Lock after leaving the app</b><small>Locks when you switch apps or turn off the screen</small></div>
+      <select id="lockDelay"><option value="0">Immediately</option><option value="30">After 30 sec</option><option value="60">After 1 min</option><option value="300">After 5 min</option></select></div>
+    <div class="prow"><div><b>Lock when idle</b><small>No touches while the app is open</small></div>
+      <select id="idleLock"><option value="0">Off</option><option value="60">1 min</option><option value="300">5 min</option><option value="600">10 min</option></select></div>
+    <div class="prow"><div><b>Erase loaded data on lock</b><small>Clears pasted/uploaded prices from memory</small></div><input type="checkbox" id="wipeOnLock" aria-label="Erase loaded data on lock"></div>
+    <div class="prow"><div><b>Hide screen in app switcher</b><small>Shows a blank cover in recent apps</small></div><input type="checkbox" id="coverOn" aria-label="Hide screen in app switcher"></div>
+    <div class="prow"><div><b>Mask account figures</b><small>Blurs equity and trade-plan numbers (tap a field to reveal)</small></div><input type="checkbox" id="maskOn" aria-label="Mask account figures"></div>
+    <div class="prow"><div><b>Offline-only mode</b><small>Blocks all internet requests. Use CSV uploads or pasted data</small></div><input type="checkbox" id="offlineOn" aria-label="Offline-only mode"></div>
+    <div class="prow"><div><b>Erase all app data</b><small>Removes PIN, settings and cached files, then restarts</small></div><button class="btn danger" id="wipeAll" type="button">Erase</button></div>
+    <p id="pMsg" role="status"></p>
+    <p class="hint" style="margin-top:8px">The PIN keeps casual snoopers out; it is not strong encryption against someone with full access to your unlocked phone's files. Android does not let web apps block screenshots, so use a screen lock on your phone as well.</p>
+  </section>
+
+
+  <section class="card" aria-label="NSE CSV download center" id="nseDownloads">
+    <h2>NSE CSV download center</h2>
+    <p style="margin:6px 0 10px">Official NSE sources for historical share-price CSVs and daily market reports. NSE creates the file after you select a symbol/date range or report; these links open the official download pages.</p>
+    <div class="links">
+      <a href="https://www.nseindia.com/historical/price-and-volume-data-per-security" target="_blank" rel="noopener noreferrer">Historical share prices — CSV<small>Select the company/symbol and date range, then tap Download (.csv).</small></a>
+      <a href="https://www.nseindia.com/all-reports" target="_blank" rel="noopener noreferrer">Daily market reports — CSV / ZIP<small>Look for “Full Bhavcopy and Security Deliverable data” (.csv) or “CM-UDiFF Common Bhavcopy Final” (.zip).</small></a>
+      <a href="https://www.nseindia.in/historical/price-and-volume-data-per-security" target="_blank" rel="noopener noreferrer">NSE historical data alternate domain<small>Official NSE historical price/volume page.</small></a>
+    </div>
+    <p class="hint" style="margin-top:9px">After downloading, return to this app and choose <b>Upload Excel / CSV</b> to analyse the file. The downloadable bhavcopy is market-wide; the historical price page is better for one share over a chosen period.</p>
+  </section>
+
+  <section class="card loader" aria-label="Load price data">
+    <div class="row">
+      <label class="field"><span>Example chart</span>
+        <select id="sample"></select>
+      </label>
+      <label class="field"><span>Share symbol (NSE)</span>
+        <input id="symbol" type="text" placeholder="e.g. RELIANCE" autocomplete="off" autocapitalize="characters" maxlength="24">
+      </label>
+      <div class="field"><span>Market</span>
+        <select id="market" aria-label="Market for automatic price data"><option value="NSE">NSE India</option><option value="BSE">BSE India</option><option value="US">US stocks</option></select>
+      </div>
+      <div class="field"><span>Automatic analysis</span>
+        <div class="row">
+          <button class="btn primary" id="autoLoad" type="button">Fetch &amp; analyse</button>
+          <label class="btn" style="position:relative">Upload Excel / CSV<input id="file" type="file" accept=".csv,.txt,.xlsx,.xls,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"></label>
+          <button class="btn" id="pasteBtn" type="button" aria-expanded="false" aria-controls="pasteBox">Paste data</button>
+        </div>
+      </div>
+    </div>
+    <div id="pasteBox" hidden>
+      <textarea id="pasteArea" spellcheck="false" aria-label="Paste CSV price data" placeholder="Date,Open,High,Low,Close,Volume&#10;2026-10-09,1203.50,1215.00,1198.20,1210.10,1250000"></textarea>
+      <div class="row"><button class="btn primary" id="pasteGo" type="button">Analyse pasted data</button></div>
+    </div>
+    <div id="getData" class="getdata">
+      <h2>Get the price history</h2>
+      <div class="links" id="links"></div>
+      <p class="hint">These open in a new tab. Download the CSV there, come back here and tap Upload CSV. On the NSE page choose "Security-wise Price volume &amp; Deliverable position data", enter the symbol and pick a range of up to 5 years.</p>
+    </div>
+    <p class="msg" id="msg" role="alert" hidden></p>
+    <p class="hint">Enter a ticker, choose its market, then tap <b>Fetch &amp; analyse</b>. The page attempts to retrieve up to 5 years of daily OHLCV data automatically; no per-share CSV upload is needed when the data provider is reachable. If the provider blocks browser requests, use the Upload Excel / CSV option. Indian Yahoo Finance symbols use .NS (NSE) or .BO (BSE).</p>
+  </section>
+
+  <section class="card outlook" id="outlook" aria-label="Outlook"></section>
+  <section class="card" id="forecastCard" aria-label="Final verdict and share targets">
+    <div class="trade-head"><div><h2>Final verdict · share targets &amp; target-hit odds</h2><p class="hint">1 month · 3 months · 6 months · 1 year</p></div><span class="badge" id="forecastStatus">Waiting for data</span></div>
+    <div id="forecastResults" style="margin-top:12px"><p class="empty">Load a stock chart to calculate targets.</p></div>
+  </section>
+  <section class="card" aria-label="Beginner guide">
+    <h2>Quick guide for a first-time trader</h2>
+    <p style="margin-top:8px"><b>LONG means buying</b> because you expect the price to rise. <b>SHORT means selling to profit from a fall</b>; availability and rules depend on your market and broker.</p>
+    <ul class="why" style="margin-top:8px"><li>Uptrend: look for LONG setups after support holds or a breakout is confirmed.</li><li>Downtrend: avoid fresh buys; consider SHORT only after a confirmed breakdown and if permitted.</li><li>Mixed trend: WAIT. Not trading is a valid decision.</li><li>Before every trade: choose entry, stop-loss, target, and affordable position size. Never risk money you cannot afford to lose.</li></ul>
+  </section>
+
+  <section class="card" id="tradeDesk" aria-label="Professional trade plan">
+    <div class="trade-head">
+      <div><h2>Trade desk · risk, execution &amp; target odds</h2>
+      <p class="hint">Rules-based plan calculated from the loaded daily OHLC history. Data is delayed/daily, not a streaming real-time feed.</p></div>
+      <span class="badge" id="tradeStatus">Waiting for data</span>
+    </div>
+    <div class="tradegrid" style="margin-top:14px">
+      <label class="field"><span>Trade direction</span><select id="tdSide"><option value="long">Long / Buy</option><option value="short">Short / Sell</option></select></label>
+      <label class="field"><span>Account equity (₹)</span><input id="tdEquity" type="number" min="1" step="1000" value="500000"></label>
+      <label class="field"><span>Risk per trade (%)</span><input id="tdRisk" type="number" min="0.1" max="5" step="0.1" value="0.75"></label>
+      <label class="field"><span>ATR stop multiple</span><select id="tdAtr"><option value="1">1.0 × ATR</option><option value="1.5" selected>1.5 × ATR</option><option value="2">2.0 × ATR</option><option value="2.5">2.5 × ATR</option></select></label>
+      <label class="field"><span>Entry price (₹)</span><input id="tdEntry" type="number" min="0.01" step="0.05" placeholder="Latest close"></label>
+      <label class="field"><span>Stop price (₹, optional override)</span><input id="tdStop" type="number" min="0" step="0.05" placeholder="Auto from ATR / swing"></label>
+      <label class="field"><span>Trade horizon</span><select id="tdHorizon"><option value="5">5 bars</option><option value="10">10 bars</option><option value="20" selected>20 bars</option><option value="40">40 bars</option></select></label>
+      <label class="field"><span>Costs + slippage (%)</span><input id="tdCosts" type="number" min="0" max="5" step="0.05" value="0.2"></label>
+    </div>
+    <div id="tradeOutput" style="margin-top:14px"></div>
+    <p class="trade-note" style="margin-top:12px">Target-hit rates are historical analog estimates from this file, not guaranteed probabilities. The test uses rolling historical entries and the chosen stop/target geometry; where stop and target touch in the same bar, stop is counted first. Results can be unreliable with short, adjusted incorrectly, survivorship-biased or low-quality data. Include brokerage, taxes, gaps, circuit limits and liquidity in real execution. This tool cannot eliminate technical or market error.</p>
+  </section>
+
+  <section class="card" aria-label="Chart">
+    <div class="chartHead">
+      <div class="seg" role="group" aria-label="Chart range" id="ranges"></div>
+      <div class="toggles" id="toggles"></div>
+    </div>
+    <div class="readout" id="readout" aria-live="off"></div>
+    <div class="chartWrap" id="chartWrap"></div>
+  </section>
+
+  <div class="lower">
+    <section class="card plist" id="plist" aria-label="Patterns found"></section>
+    <section class="card stats" aria-label="Indicators">
+      <h2>Indicators</h2>
+      <dl class="kv" id="stats" style="margin-top:12px"></dl>
+    </section>
+  </div>
+
+  <section class="card" id="marketScanner" aria-label="Market-wide scanner and Murphy toolkit">
+    <h2>Market-wide scanner · Murphy technical toolkit</h2>
+    <p class="hint">Scan curated large-, mid-, small- and micro-cap watchlists without uploading per-stock files. Data retrieval tries multiple browser-accessible routes; public relays can fail or be rate-limited. It is a rules-based screener, not an AI prediction engine. Size buckets are illustrative curated lists, not live market-cap classifications.</p>
+    <div class="row" style="align-items:end;margin:12px 0">
+      <label class="field"><span>Universe</span><select id="scanMarket"><option value="NSE">India · NSE</option><option value="US">United States</option><option value="BSE">India · BSE</option></select></label>
+      <label class="field"><span>Company size</span><select id="scanCap"><option value="all">All sizes · curated</option><option value="large">Large-cap</option><option value="mid">Mid-cap</option><option value="small">Small-cap</option><option value="micro">Micro-cap / high risk</option></select></label>
+      <label class="field" style="flex:2"><span>Symbols (comma or space separated; optional)</span><input id="scanSymbols" placeholder="Leave blank for curated universe"></label>
+      <label class="field"><span>Minimum score</span><select id="scanMin"><option value="0">Any</option><option value="50" selected>50 / 100</option><option value="65">65 / 100</option><option value="75">75 / 100</option></select></label>
+      <button class="btn primary" id="scanGo" type="button">Scan market</button>
+    </div>
+    <div class="row" style="margin:8px 0"><button class="btn" id="scanStop" type="button" disabled>Stop scan</button><button class="btn" id="exportScan" type="button" disabled>Export results CSV</button><span class="hint" id="scanStatus" aria-live="polite">Ready to scan.</span></div>
+    <div id="scanResults" style="overflow:auto"><p class="empty">Run a scan to rank stocks by trend, momentum, volume confirmation and breakout structure.</p></div>
+    <h3 style="margin-top:20px">Murphy-style technical checklist · current chart</h3>
+    <div class="row" style="margin:10px 0"><button class="btn" id="refreshToolkit" type="button">Calculate toolkit for loaded chart</button><button class="btn" id="exportToolkit" type="button">Export checklist CSV</button></div>
+    <div id="toolkitResults"><p class="empty">Load a stock above, then calculate the checklist.</p></div>
+    <p class="note" style="margin-top:12px">Method notes: trend is prioritized over oscillator extremes; volume is used as confirmation; three-month return provides a basic momentum ranking; benchmark-relative strength is not yet part of this standalone build. Fibonacci levels, pivot levels, ATR and indicator values are descriptive calculations, not forecasts. Point &amp; Figure, Elliott Wave counts, cycle dating, market breadth and full intermarket analysis are not inferred reliably from a single daily OHLCV series and are not represented as confirmed signals here.</p>
+  </section>
+
+  <p class="note">Detection is rule-based and uses price history only. The fit score shows how closely a chart matches the textbook shape and is not a probability of success. Targets are the classic height projections. On pure random price noise this scanner still flags an active pattern on roughly one chart in four, so treat a pattern as one input among several. This is not investment advice.</p>
+</main>
+
+<script>
+/* Pattern engine: indicators, swing pivots, pattern detectors, outlook.
+   Bars are {i, d (Date|null), o, h, l, c, v}. Pure functions, no DOM. */
+(function (root) {
+'use strict';
+
+const avg = a => a.length ? a.reduce((s, x) => s + x, 0) / a.length : 0;
+const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+const median = a => { if (!a.length) return 0; const s = [...a].sort((x, y) => x - y), m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
+
+/* ---------- indicators ---------- */
+function sma(v, n) {
+  const out = new Array(v.length).fill(null); let s = 0;
+  for (let i = 0; i < v.length; i++) { s += v[i]; if (i >= n) s -= v[i - n]; if (i >= n - 1) out[i] = s / n; }
+  return out;
+}
+function rsi(c, n = 14) {
+  const out = new Array(c.length).fill(null); if (c.length <= n) return out;
+  let g = 0, l = 0;
+  for (let i = 1; i <= n; i++) { const d = c[i] - c[i - 1]; if (d >= 0) g += d; else l -= d; }
+  g /= n; l /= n; out[n] = l === 0 ? 100 : 100 - 100 / (1 + g / l);
+  for (let i = n + 1; i < c.length; i++) {
+    const d = c[i] - c[i - 1];
+    g = (g * (n - 1) + Math.max(d, 0)) / n; l = (l * (n - 1) + Math.max(-d, 0)) / n;
+    out[i] = l === 0 ? 100 : 100 - 100 / (1 + g / l);
+  }
+  return out;
+}
+function trPct(bars) {
+  const tr = [];
+  for (let i = 1; i < bars.length; i++) {
+    const b = bars[i], p = bars[i - 1];
+    tr.push(Math.max(b.h - b.l, Math.abs(b.h - p.c), Math.abs(b.l - p.c)) / b.c);
+  }
+  return tr;
+}
+
+/* ---------- swing pivots (zigzag by percentage) ---------- */
+function zigzag(bars, thr) {
+  const n = bars.length, piv = []; if (n < 5) return piv;
+  let dir = 0, hiI = 0, loI = 0, extI = 0, ext = 0;
+  for (let i = 1; i < n; i++) {
+    const b = bars[i];
+    if (dir === 0) {
+      if (b.h > bars[hiI].h) hiI = i;
+      if (b.l < bars[loI].l) loI = i;
+      if (bars[hiI].h >= bars[loI].l * (1 + thr)) {
+        if (hiI > loI) { piv.push({ i: loI, p: bars[loI].l, t: 'L' }); dir = 1; ext = bars[hiI].h; extI = hiI; }
+        else { piv.push({ i: hiI, p: bars[hiI].h, t: 'H' }); dir = -1; ext = bars[loI].l; extI = loI; }
+      }
+    } else if (dir === 1) {
+      if (b.h > ext) { ext = b.h; extI = i; }
+      else if (b.l <= ext * (1 - thr)) { piv.push({ i: extI, p: ext, t: 'H' }); dir = -1; ext = b.l; extI = i; }
+    } else {
+      if (b.l < ext) { ext = b.l; extI = i; }
+      else if (b.h >= ext * (1 + thr)) { piv.push({ i: extI, p: ext, t: 'L' }); dir = 1; ext = b.h; extI = i; }
+    }
+  }
+  if (dir !== 0) piv.push({ i: extI, p: ext, t: dir === 1 ? 'H' : 'L', prov: true });
+  return piv;
+}
+
+function linfit(pts) {
+  const n = pts.length; let sx = 0, sy = 0, sxx = 0, sxy = 0;
+  for (const q of pts) { sx += q.x; sy += q.y; sxx += q.x * q.x; sxy += q.x * q.y; }
+  const d = n * sxx - sx * sx, m = d ? (n * sxy - sx * sy) / d : 0;
+  return { m, b: (sy - m * sx) / n };
+}
+function det3(a) {
+  return a[0][0] * (a[1][1] * a[2][2] - a[1][2] * a[2][1]) - a[0][1] * (a[1][0] * a[2][2] - a[1][2] * a[2][0]) + a[0][2] * (a[1][0] * a[2][1] - a[1][1] * a[2][0]);
+}
+function polyfit2(xs, ys) {
+  const S = [0, 0, 0, 0, 0], T = [0, 0, 0];
+  for (let k = 0; k < xs.length; k++) {
+    let xp = 1; const y = ys[k];
+    for (let j = 0; j < 5; j++) { S[j] += xp; if (j < 3) T[j] += xp * y; xp *= xs[k]; }
+  }
+  const M = [[S[0], S[1], S[2]], [S[1], S[2], S[3]], [S[2], S[3], S[4]]], D = det3(M);
+  if (Math.abs(D) < 1e-12) return null;
+  const col = j => M.map((r, i) => r.map((v, k) => k === j ? T[i] : v));
+  const c = [det3(col(0)) / D, det3(col(1)) / D, det3(col(2)) / D];
+  const my = avg(ys); let ssr = 0, sst = 0;
+  for (let k = 0; k < xs.length; k++) { const f = c[0] + c[1] * xs[k] + c[2] * xs[k] * xs[k]; ssr += (ys[k] - f) ** 2; sst += (ys[k] - my) ** 2; }
+  return { c, r2: sst ? 1 - ssr / sst : 0 };
+}
+
+/* Net move into index i over the previous `look` bars, signed so that positive means the move was in direction s. */
+function priorMove(bars, i, look, s) {
+  const j = Math.max(0, i - look); if (i - j < Math.min(20, look)) return null;
+  let ext = s === 1 ? Infinity : -Infinity;
+  for (let k = j; k <= i; k++) ext = s === 1 ? Math.min(ext, bars[k].l) : Math.max(ext, bars[k].h);
+  return s * (bars[i].c - ext) / Math.abs(ext) * (s === 1 ? 1 : 1);
+}
+
+const volAvg = (bars, a, b) => { const v = []; for (let i = Math.max(0, a); i <= Math.min(bars.length - 1, b); i++) if (bars[i].v > 0) v.push(bars[i].v); return v.length ? avg(v) : 0; };
+
+/* ---------- head & shoulders (and inverse) ---------- */
+function detectHS(bars, piv, inv, thr) {
+  const s = inv ? -1 : 1, n = bars.length, found = [];
+  const P = piv.map(p => ({ ...p, tp: s * p.p, tt: inv ? (p.t === 'H' ? 'L' : 'H') : p.t }));
+  const tLow = b => s === 1 ? b.l : -b.h;
+  for (let k = 0; k + 4 < P.length; k++) {
+    const [a, t1, h, t2, r] = P.slice(k, k + 5);
+    if (a.tt !== 'H' || t1.tt !== 'L' || h.tt !== 'H' || t2.tt !== 'L' || r.tt !== 'H') continue;
+    const neck = (t1.tp + t2.tp) / 2, hh = h.tp - neck;
+    if (hh <= 0 || hh / Math.abs(neck) < Math.max(0.06, 1.8 * thr)) continue;
+    if (h.tp - a.tp < 0.1 * hh || h.tp - r.tp < 0.1 * hh) continue;
+    if (a.tp - neck < 0.25 * hh || r.tp - neck < 0.25 * hh) continue;
+    if (Math.abs(a.tp - r.tp) > 0.25 * hh) continue;
+    if (Math.abs(t1.tp - t2.tp) > 0.3 * hh) continue;
+    const pm = priorMove(bars, a.i, 60, s); if (pm === null || pm < 0.08) continue;
+    const lw = h.i - a.i, rw = r.i - h.i;
+    if (lw < 5 || rw < 5) continue;
+    const ratio = lw / rw; if (ratio < 0.4 || ratio > 2.5) continue;
+    const neckAt = i => t1.p + (t2.p - t1.p) * (i - t1.i) / (t2.i - t1.i);
+    let breakI = null, failed = false;
+    for (let i = r.i + 1; i < n; i++) {
+      if (s * bars[i].c > h.tp) { failed = true; break; }
+      if (s * bars[i].c < s * neckAt(i)) { breakI = i; break; }
+    }
+    if (failed) continue;
+    if (breakI === null && n - 1 - r.i > 40) continue;
+    let conf = 40;
+    conf += 15 * (1 - clamp(Math.abs(a.tp - r.tp) / (0.25 * hh), 0, 1));
+    conf += 10 * (1 - clamp(Math.abs(t1.tp - t2.tp) / (0.3 * hh), 0, 1));
+    conf += 10 * (1 - clamp(Math.abs(Math.log(ratio)) / Math.log(2.5), 0, 1));
+    if (hh / Math.abs(neck) >= 0.08) conf += 5;
+    const notes = [];
+    const vL = volAvg(bars, a.i, h.i), vR = volAvg(bars, h.i, r.i);
+    if (!inv && vL && vR) { if (vR < vL) { conf += 5; notes.push('Volume faded into the right shoulder, which is typical of a real top.'); } }
+    if (inv && vL && vR) { if (vR > vL) { conf += 5; notes.push('Volume built up on the right side, which is typical of a real bottom.'); } }
+    const ref = breakI !== null ? breakI : r.i;
+    const target = neckAt(ref) - s * hh;
+    let status = 'forming', targetHit = false;
+    if (breakI !== null) {
+      status = 'confirmed'; conf += 10;
+      const v20 = volAvg(bars, breakI - 20, breakI - 1);
+      if (v20 && bars[breakI].v > 1.3 * v20) { conf += 5; notes.push('The break came on above-average volume.'); }
+      for (let i = breakI; i < n; i++) if (tLow(bars[i]) <= s * target) { targetHit = true; break; }
+      if (targetHit) status = 'target reached';
+    } else if (r.prov) { conf -= 10; notes.push('The right shoulder is still being built.'); }
+    const nameTxt = inv ? 'Inverse Head & Shoulders' : 'Head & Shoulders';
+    notes.unshift(`Head at ${fmt(h.p)}, shoulders at ${fmt(a.p)} and ${fmt(r.p)}, neckline near ${fmt(neckAt(ref))}.`);
+    found.push({
+      kind: inv ? 'ihs' : 'hs', name: nameTxt, bias: inv ? 'bull' : 'bear', status,
+      conf: Math.round(clamp(conf, 5, 95)), startI: a.i, endI: breakI !== null ? breakI : r.i, breakI,
+      trigger: neckAt(n - 1), target, invalid: h.p, notes, headI: h.i,
+      active: isActive(status, breakI, n),
+      draw: {
+        poly: [a, t1, h, t2, r].map(q => ({ i: q.i, p: q.p })),
+        points: [{ i: a.i, p: a.p, l: 'LS' }, { i: h.i, p: h.p, l: 'H' }, { i: r.i, p: r.p, l: 'RS' }],
+        lines: [
+          { k: 'neck', a: { i: t1.i, p: t1.p }, b: { i: n - 1, p: neckAt(n - 1) }, l: 'Neckline' },
+          { k: 'target', a: { i: ref, p: target }, b: { i: n - 1, p: target }, l: 'Target' }
+        ]
+      }
+    });
+  }
+  return dedupeBy(found, 'headI');
+}
+
+/* ---------- double top / double bottom ---------- */
+function detectDouble(bars, piv, inv, thr) {
+  const s = inv ? -1 : 1, n = bars.length, found = [];
+  const P = piv.map(p => ({ ...p, tp: s * p.p, tt: inv ? (p.t === 'H' ? 'L' : 'H') : p.t }));
+  const tLow = b => s === 1 ? b.l : -b.h;
+  for (let k = 0; k + 2 < P.length; k++) {
+    const [p1, t, p2] = P.slice(k, k + 3);
+    if (p1.tt !== 'H' || t.tt !== 'L' || p2.tt !== 'H') continue;
+    const top = Math.max(p1.tp, p2.tp), peakAvg = (p1.tp + p2.tp) / 2, ref = Math.abs(peakAvg);
+    const diff = Math.abs(p1.tp - p2.tp) / ref;
+    const depth = (Math.min(p1.tp, p2.tp) - t.tp) / ref;
+    if (diff > 0.025 || depth < Math.max(0.08, 2 * thr)) continue;
+    const pm = priorMove(bars, p1.i, 60, s); if (pm === null || pm < 0.08) continue;
+    const gap = p2.i - p1.i; if (gap < 12 || gap > 90) continue;
+    let breakI = null, failed = false;
+    for (let i = p2.i + 1; i < n; i++) {
+      if (s * bars[i].c > top + 0.02 * ref) { failed = true; break; }
+      if (s * bars[i].c < t.tp) { breakI = i; break; }
+    }
+    if (failed) continue;
+    if (breakI === null && n - 1 - p2.i > 40) continue;
+    const move = peakAvg - t.tp, tgtT = t.tp - move, target = s * tgtT;
+    let conf = 35 + 20 * (1 - clamp(diff / 0.025, 0, 1)) + clamp(depth * 100, 0, 15);
+    const notes = [`Two ${inv ? 'lows' : 'highs'} near ${fmt(s * peakAvg)} (${(diff * 100).toFixed(1)}% apart) with a ${(depth * 100).toFixed(0)}% swing between them.`];
+    let status = 'forming', targetHit = false;
+    if (breakI !== null) {
+      status = 'confirmed'; conf += 15;
+      for (let i = breakI; i < n; i++) if (tLow(bars[i]) <= tgtT) { targetHit = true; break; }
+      if (targetHit) status = 'target reached';
+      const v20 = volAvg(bars, breakI - 20, breakI - 1);
+      if (v20 && bars[breakI].v > 1.3 * v20) { conf += 5; notes.push('The break came on above-average volume.'); }
+    } else if (p2.prov) { conf -= 10; notes.push('The second peak is still being formed.'); }
+    found.push({
+      kind: inv ? 'dbot' : 'dtop', name: inv ? 'Double Bottom' : 'Double Top', bias: inv ? 'bull' : 'bear', status,
+      conf: Math.round(clamp(conf, 5, 95)), startI: p1.i, endI: breakI !== null ? breakI : p2.i, breakI,
+      trigger: t.p, target, invalid: s * top, notes, headI: p1.i,
+      active: isActive(status, breakI, n),
+      draw: {
+        poly: [p1, t, p2].map(q => ({ i: q.i, p: q.p })),
+        points: [{ i: p1.i, p: p1.p, l: inv ? '1' : '1' }, { i: p2.i, p: p2.p, l: '2' }],
+        lines: [
+          { k: 'neck', a: { i: p1.i, p: t.p }, b: { i: n - 1, p: t.p }, l: inv ? 'Confirmation' : 'Support' },
+          { k: 'target', a: { i: breakI !== null ? breakI : p2.i, p: target }, b: { i: n - 1, p: target }, l: 'Target' }
+        ]
+      }
+    });
+  }
+  return dedupeBy(found, 'headI');
+}
+
+/* ---------- triangles and wedges ---------- */
+function detectTriangle(bars, piv, thr) {
+  const n = bars.length; let best = null;
+  for (let m = 4; m <= Math.min(8, piv.length); m++) {
+    const seg = piv.slice(-m);
+    const hi = seg.filter(q => q.t === 'H'), lo = seg.filter(q => q.t === 'L');
+    if (hi.length < 2 || lo.length < 2) continue;
+    const x0 = seg[0].i, xl = seg[seg.length - 1].i;
+    if (xl - x0 < 20 || n - 1 - xl > 15) continue;
+    const fH = linfit(hi.map(q => ({ x: q.i, y: q.p }))), fL = linfit(lo.map(q => ({ x: q.i, y: q.p })));
+    const U = x => fH.m * x + fH.b, L = x => fL.m * x + fL.b;
+    const mid = (U(x0) + L(x0)) / 2, gap0 = U(x0) - L(x0), gapE = U(xl) - L(xl);
+    if (gap0 <= 0 || gapE <= 0 || gapE > 0.7 * gap0 || gap0 / mid < 2 * thr) continue;
+    const touchOk = (pts, F) => pts.filter(q => Math.abs(q.p - F(q.i)) / q.p <= 0.012).length;
+    const tH = touchOk(hi, U), tL = touchOk(lo, L);
+    if (tH < 2 || tL < 2 || tH + tL < 5) continue;
+    const amp = []; for (let q = 1; q < seg.length; q++) amp.push(Math.abs(seg[q].p - seg[q - 1].p));
+    if (avg(amp.slice(-2)) > 0.6 * avg(amp.slice(0, 2))) continue;
+    const span = n - 1 - x0, chgU = (U(n - 1) - U(x0)) / mid, chgL = (L(n - 1) - L(x0)) / mid;
+    const flat = 0.03 * Math.max(1, span / 60);
+    let kind = null, name = '', bias = 'neutral';
+    if (Math.abs(chgU) <= flat && chgL >= 0.04) { kind = 'asc'; name = 'Ascending Triangle'; bias = 'bull'; }
+    else if (Math.abs(chgL) <= flat && chgU <= -0.04) { kind = 'desc'; name = 'Descending Triangle'; bias = 'bear'; }
+    else if (chgU <= -0.025 && chgL >= 0.025) { kind = 'sym'; name = 'Symmetrical Triangle'; bias = 'neutral'; }
+    else if (chgU > 0.025 && chgL > 0.025) { kind = 'rw'; name = 'Rising Wedge'; bias = 'bear'; }
+    else if (chgU < -0.025 && chgL < -0.025) { kind = 'fw'; name = 'Falling Wedge'; bias = 'bull'; }
+    if (!kind) continue;
+    let breakI = null, breakDir = 0;
+    for (let i = xl + 1; i < n; i++) {
+      if (bars[i].c > U(i) * 1.003) { breakI = i; breakDir = 1; break; }
+      if (bars[i].c < L(i) * 0.997) { breakI = i; breakDir = -1; break; }
+    }
+    let conf = 35 + 5 * Math.min(3, seg.length - 4) + 3 * (tH + tL - 4) + 10 * (1 - gapE / gap0);
+    const notes = [`Upper line ${chgU >= 0 ? 'rises' : 'falls'} ${Math.abs(chgU * 100).toFixed(1)}% and lower line ${chgL >= 0 ? 'rises' : 'falls'} ${Math.abs(chgL * 100).toFixed(1)}% across ${span} bars, with ${tH + tL} touches.`];
+    const vA = volAvg(bars, x0, x0 + Math.floor(span / 3)), vB = volAvg(bars, n - 1 - Math.floor(span / 3), n - 1);
+    if (vA && vB && vB < vA) { conf += 6; notes.push('Volume is contracting as the range tightens.'); }
+    let status = 'forming', outBias = bias;
+    const height = gap0, trigUp = U(n - 1), trigDn = L(n - 1);
+    let target, trigger, invalid;
+    if (breakI !== null) {
+      status = 'confirmed'; conf += 12;
+      outBias = breakDir > 0 ? 'bull' : 'bear';
+      if (bias !== 'neutral' && bias !== outBias) { conf -= 8; notes.push('The break went against the usual bias for this shape.'); }
+      const bl = breakDir > 0 ? U(breakI) : L(breakI);
+      target = bl + breakDir * height; trigger = bl; invalid = breakDir > 0 ? L(breakI) : U(breakI);
+    } else {
+      const up = bias === 'bull' || (bias === 'neutral' && bars[n - 1].c >= bars[Math.max(0, x0 - 30)].c);
+      trigger = up ? trigUp : trigDn; target = up ? trigUp + height : trigDn - height; invalid = up ? trigDn : trigUp;
+      if (bias === 'neutral') outBias = up ? 'bull' : 'bear';
+      if (bias === 'neutral') notes.push('Symmetrical shapes can break either way. The lean here follows the prior trend.');
+    }
+    if (status === 'confirmed' && (outBias === 'bull' ? bars.slice(breakI).some(b => b.h >= target) : bars.slice(breakI).some(b => b.l <= target))) status = 'target reached';
+    const endX = breakI !== null ? breakI : n - 1;
+    const cand = {
+      kind, name, bias: outBias, status, conf: Math.round(clamp(conf, 5, 90)), startI: x0, endI: endX, breakI,
+      trigger, target, invalid, notes, headI: x0,
+      active: isActive(status, breakI, n),
+      draw: {
+        shade: [{ i: x0, p: U(x0) }, { i: endX, p: U(endX) }, { i: endX, p: L(endX) }, { i: x0, p: L(x0) }],
+        lines: [
+          { k: 'trend', a: { i: x0, p: U(x0) }, b: { i: endX, p: U(endX) } },
+          { k: 'trend', a: { i: x0, p: L(x0) }, b: { i: endX, p: L(endX) } },
+          { k: 'target', a: { i: endX, p: target }, b: { i: n - 1, p: target }, l: 'Target' }
+        ],
+        points: seg.map(q => ({ i: q.i, p: q.p, l: '' }))
+      }
+    };
+    if (!best || cand.conf > best.conf) best = cand;
+  }
+  return best ? [best] : [];
+}
+
+/* ---------- cup and handle ---------- */
+function detectCup(bars, piv, thr) {
+  const n = bars.length, out = [];
+  for (let mi = 0; mi < piv.length; mi++) {
+    const m = piv[mi]; if (m.t !== 'L') continue;
+    for (let ai = 0; ai < mi; ai++) {
+      const a = piv[ai]; if (a.t !== 'H') continue;
+      for (let bi = mi + 1; bi < piv.length; bi++) {
+        const b = piv[bi]; if (b.t !== 'H') continue;
+        const cupLen = b.i - a.i; if (cupLen < 25 || cupLen > 260) continue;
+        const pos = (m.i - a.i) / cupLen; if (pos < 0.25 || pos > 0.75) continue;
+        const depth = a.p - m.p, dPct = depth / a.p; if (dPct < Math.max(0.12, 3 * thr) || dPct > 0.42) continue;
+        const pmc = priorMove(bars, a.i, 60, 1); if (pmc !== null && pmc < 0.06) continue;
+        if (b.p < a.p * 0.90 || b.p > a.p * 1.04) continue;
+        let leftOk = true;
+        for (let i = a.i; i <= b.i; i++) if (bars[i].c > a.p * 1.03 && i > a.i + 1 && i < b.i - 1 && bars[i].c > b.p * 1.03) { leftOk = false; break; }
+        if (!leftOk) continue;
+        const xs = [], ys = [];
+        for (let i = a.i; i <= b.i; i++) { xs.push(2 * (i - a.i) / cupLen - 1); ys.push(bars[i].c); }
+        const fit = polyfit2(xs, ys); if (!fit || fit.c[2] <= 0 || fit.r2 < 0.6) continue;
+        let low = 0; for (let i = a.i; i <= b.i; i++) if (bars[i].c < m.p + 0.5 * depth) low++;
+        const bottomFrac = low / (cupLen + 1); if (bottomFrac < 0.55) continue;
+        const sm = i => { let t = 0, k = 0; for (let j = Math.max(0, i - 2); j <= Math.min(n - 1, i + 2); j++) { t += bars[j].c; k++; } return t / k; };
+        let runMin = Infinity, bounceL = 0, runMax = -Infinity, bounceR = 0;
+        for (let i = a.i; i <= m.i; i++) { const v = sm(i); runMin = Math.min(runMin, v); bounceL = Math.max(bounceL, v - runMin); }
+        for (let i = m.i; i <= b.i; i++) { const v = sm(i); runMax = Math.max(runMax, v); bounceR = Math.max(bounceR, runMax - v); }
+        if (bounceL > 0.2 * depth || bounceR > 0.2 * depth) continue;
+        let breakI = null, endH = n - 1;
+        for (let i = b.i + 1; i < n; i++) if (bars[i].c > b.p) { breakI = i; endH = i; break; }
+        let hLow = b.p;
+        for (let i = b.i + 1; i <= endH; i++) hLow = Math.min(hLow, bars[i].l);
+        const hLen = endH - b.i, hDepth = b.p - hLow;
+        if (hDepth > 0.5 * depth || hLow < m.p + 0.5 * depth) continue;
+        if (hLen > Math.max(25, cupLen * 0.5)) continue;
+        if (breakI === null && n - 1 - b.i > Math.max(40, cupLen * 0.5)) continue;
+        if (breakI === null && b.prov && n - 1 - b.i > 0 && bars[n - 1].c < b.p - 0.5 * depth) continue;
+        let conf = 35 + 15 * clamp((fit.r2 - 0.6) / 0.3, 0, 1) + 10 * clamp((bottomFrac - 0.55) / 0.2, 0, 1) + 10 * (1 - clamp(Math.abs(b.p - a.p) / (0.08 * a.p), 0, 1));
+        const notes = [`Cup from ${fmt(a.p)} down to ${fmt(m.p)} (${(dPct * 100).toFixed(0)}% deep) over ${cupLen} bars, back to ${fmt(b.p)}.`];
+        if (bars[a.i].c > bars[Math.max(0, a.i - 30)].c * 1.05) { conf += 5; notes.push('A prior advance leads into the left rim, as the pattern expects.'); }
+        let status = 'forming', handleTxt = '';
+        if (hLen >= 3) { conf += 8; handleTxt = `Handle pulled back ${(hDepth / b.p * 100).toFixed(1)}% over ${hLen} bars.`; }
+        else if (breakI === null) handleTxt = 'The handle has not formed yet.';
+        if (handleTxt) notes.push(handleTxt);
+        const vC = volAvg(bars, a.i, b.i), vH = volAvg(bars, b.i + 1, endH);
+        if (vC && vH && hLen >= 3 && vH < vC) { conf += 4; notes.push('Volume dried up in the handle.'); }
+        const target = b.p + depth;
+        let hit = false;
+        if (breakI !== null) {
+          status = 'confirmed'; conf += 10;
+          const v20 = volAvg(bars, breakI - 20, breakI - 1);
+          if (v20 && bars[breakI].v > 1.3 * v20) { conf += 5; notes.push('The breakout came on above-average volume.'); }
+          hit = bars.slice(breakI).some(x => x.h >= target); if (hit) status = 'target reached';
+        }
+        const curve = [];
+        for (let i = a.i; i <= b.i; i += Math.max(1, Math.floor(cupLen / 60))) { const x = 2 * (i - a.i) / cupLen - 1; curve.push({ i, p: fit.c[0] + fit.c[1] * x + fit.c[2] * x * x }); }
+        curve.push({ i: b.i, p: fit.c[0] + fit.c[1] + fit.c[2] });
+        out.push({
+          kind: 'cup', name: 'Cup & Handle', bias: 'bull', status, conf: Math.round(clamp(conf, 5, 95)),
+          startI: a.i, endI: breakI !== null ? breakI : b.i, breakI, trigger: b.p, target, invalid: hLen >= 3 ? hLow : m.p, notes, headI: a.i,
+          active: isActive(status, breakI, n),
+          draw: {
+            curve,
+            points: [{ i: a.i, p: a.p, l: 'Left rim' }, { i: m.i, p: m.p, l: 'Cup low' }, { i: b.i, p: b.p, l: 'Right rim' }],
+            lines: [
+              { k: 'neck', a: { i: a.i, p: a.p }, b: { i: breakI !== null ? breakI : n - 1, p: a.p }, l: 'Rim' },
+              { k: 'target', a: { i: breakI !== null ? breakI : b.i, p: target }, b: { i: n - 1, p: target }, l: 'Target' }
+            ],
+            box: hLen >= 2 ? { a: { i: b.i, p: b.p }, b: { i: endH, p: hLow } } : null
+          }
+        });
+      }
+    }
+  }
+  out.sort((x, y) => y.conf - x.conf);
+  const keep = [];
+  for (const c of out) if (!keep.some(k => c.startI <= k.endI && k.startI <= c.endI)) keep.push(c);
+  return keep.slice(0, 2);
+}
+
+function isActive(status, breakI, n) { return status === 'forming' || (status === 'confirmed' && n - 1 - breakI <= 40); }
+
+function dedupeBy(arr, key) {
+  const m = new Map();
+  for (const x of arr) { const o = m.get(x[key]); if (!o || x.conf > o.conf) m.set(x[key], x); }
+  return [...m.values()];
+}
+
+/* ---------- support / resistance ---------- */
+function levelsFrom(piv, close) {
+  const pr = piv.map(p => ({ p: p.p, i: p.i })).sort((a, b) => a.p - b.p), groups = [];
+  for (const q of pr) {
+    const g = groups[groups.length - 1];
+    if (g && Math.abs(q.p - g.mean) / g.mean <= 0.015) { g.items.push(q); g.mean = avg(g.items.map(z => z.p)); }
+    else groups.push({ mean: q.p, items: [q] });
+  }
+  const lv = groups.filter(g => g.items.length >= 2).map(g => ({ p: g.mean, touches: g.items.length, lastI: Math.max(...g.items.map(z => z.i)) }));
+  const above = lv.filter(x => x.p > close * 1.002).sort((a, b) => a.p - b.p)[0] || null;
+  const below = lv.filter(x => x.p < close * 0.998).sort((a, b) => b.p - a.p)[0] || null;
+  return { all: lv, resistance: above, support: below };
+}
+
+/* ---------- analyse ---------- */
+function analyze(bars) {
+  const n = bars.length, closes = bars.map(b => b.c);
+  const ind = { sma20: sma(closes, 20), sma50: sma(closes, 50), rsi: rsi(closes, 14) };
+  const tr = trPct(bars), atr = tr.length ? avg(tr.slice(-14)) : 0.02, medTr = median(tr) || 0.02;
+  const thr = clamp(2.4 * medTr, 0.03, 0.12), thrFine = clamp(1.4 * medTr, 0.02, 0.08);
+  const piv = zigzag(bars, thr), pivFine = zigzag(bars, thrFine);
+  let patterns = [];
+  if (n >= 40) {
+    patterns = patterns.concat(
+      detectHS(bars, piv, false, thr), detectHS(bars, piv, true, thr),
+      detectDouble(bars, piv, false, thr), detectDouble(bars, piv, true, thr),
+      detectTriangle(bars, piv, thr), detectCup(bars, pivFine, thrFine)
+    );
+  }
+  patterns = patterns.filter(p => p.conf >= 45);
+  patterns.forEach((p, k) => { p.id = 'p' + k; });
+  patterns.sort((a, b) => (b.active - a.active) || (b.conf - a.conf));
+  const close = closes[n - 1];
+  const levels = levelsFrom(piv, close);
+  const out = outlook(bars, ind, patterns, levels, atr);
+  const plan = swingPlan(bars, ind, patterns, levels, out, atr);
+  return { bars, ind, piv, pivFine, thr, atr, patterns, levels, outlook: out, plan };
+}
+
+function outlook(bars, ind, patterns, levels, atr) {
+  const n = bars.length, c = bars[n - 1].c; let score = 0; const why = [];
+  const act = patterns.filter(p => p.active);
+  let ps = 0;
+  for (const p of act) {
+    const age = p.status === 'confirmed' ? (n - 1 - p.breakI) / 40 : 0;
+    const w = (p.conf / 100) * (p.status === 'confirmed' ? 1 - 0.5 * age : 0.6) * 35;
+    ps += (p.bias === 'bull' ? 1 : p.bias === 'bear' ? -1 : 0) * w;
+  }
+  ps = clamp(ps, -60, 60); score += ps;
+  const s50 = ind.sma50[n - 1], s20 = ind.sma20[n - 1], r = ind.rsi[n - 1];
+  let tr = 0;
+  if (s50 !== null) {
+    tr += c > s50 ? 10 : -10;
+    const prev = ind.sma50[Math.max(0, n - 11)];
+    if (prev !== null) tr += s50 > prev ? 7 : -7;
+  }
+  if (s20 !== null && s50 !== null) tr += s20 > s50 ? 8 : -8;
+  score += tr;
+  let rs = 0;
+  if (r !== null) { if (r >= 75) rs = -6; else if (r >= 50) rs = 3; else if (r <= 25) rs = 6; else if (r < 50) rs = -3; }
+  score += rs;
+  score = Math.round(clamp(score, -100, 100));
+  const label = score >= 40 ? 'Bullish' : score >= 15 ? 'Leaning bullish' : score > -15 ? 'Neutral' : score > -40 ? 'Leaning bearish' : 'Bearish';
+  const dir = score >= 15 ? 'bull' : score <= -15 ? 'bear' : 'neutral';
+  const primary = act.slice().sort((a, b) => (b.conf * (b.status === 'confirmed' ? 1 : 0.7)) - (a.conf * (a.status === 'confirmed' ? 1 : 0.7)))[0] || null;
+  if (primary) why.push(`${primary.name} (${primary.status}) is the strongest active pattern, fit score ${primary.conf}.`);
+  else why.push('No clear classic pattern is active right now, so the read leans on trend and momentum.');
+  if (s50 !== null) why.push(`Price is ${c > s50 ? 'above' : 'below'} the 50-bar average and the 20-bar average is ${s20 > s50 ? 'above' : 'below'} it.`);
+  if (r !== null) why.push(`RSI is ${r.toFixed(0)}${r >= 70 ? ', which is stretched on the upside' : r <= 30 ? ', which is stretched on the downside' : ''}.`);
+  const scen = [];
+  if (primary) {
+    const up = primary.bias === 'bull';
+    const mv = (t) => ((t / c - 1) * 100);
+    if (primary.status === 'confirmed') {
+      scen.push(`${primary.name} already broke ${up ? 'up' : 'down'}. The measured target is ${fmt(primary.target)} (${mv(primary.target) >= 0 ? '+' : ''}${mv(primary.target).toFixed(1)}%).`);
+      scen.push(`A close ${up ? 'below' : 'above'} ${fmt(primary.invalid)} would cancel the pattern.`);
+    } else {
+      scen.push(`A close ${up ? 'above' : 'below'} ${fmt(primary.trigger)} would confirm it, with a measured target of ${fmt(primary.target)} (${mv(primary.target) >= 0 ? '+' : ''}${mv(primary.target).toFixed(1)}%).`);
+      scen.push(`A close ${up ? 'below' : 'above'} ${fmt(primary.invalid)} would cancel it.`);
+    }
+  }
+  if (levels.resistance) scen.push(`Nearest resistance is ${fmt(levels.resistance.p)} (${levels.resistance.touches} touches).`);
+  if (levels.support) scen.push(`Nearest support is ${fmt(levels.support.p)} (${levels.support.touches} touches).`);
+  return { score, label, dir, primary, why, scenarios: scen, parts: { pattern: Math.round(ps), trend: tr, momentum: rs } };
+}
+
+
+/* ---------- swing plan (1 to 3 months) ---------- */
+function barsPerMonth(bars) {
+  const ds = [];
+  for (let i = 1; i < bars.length; i++) if (bars[i].d && bars[i - 1].d) ds.push((bars[i].d - bars[i - 1].d) / 864e5);
+  if (ds.length < 10) return { bpm: 21 };
+  const m = median(ds);
+  if (m === 0) return { bpm: null, why: 'intraday' };
+  if (m <= 4) return { bpm: 21 };
+  if (m <= 10) return { bpm: 4.3 };
+  return { bpm: null, why: 'monthly' };
+}
+
+function swingPlan(bars, ind, patterns, levels, o, atrFrac) {
+  const n = bars.length, c = bars[n - 1].c, bp = barsPerMonth(bars);
+  if (!bp.bpm) return { ok: false, reason: bp.why === 'intraday' ? 'The swing plan needs daily or weekly bars, and this file looks intraday.' : 'The swing plan needs daily or weekly bars.' };
+  const look = Math.min(n - 1, 120), rets = [];
+  for (let i = n - look; i < n; i++) rets.push(Math.log(bars[i].c / bars[i - 1].c));
+  const mu = avg(rets), sd = Math.sqrt(avg(rets.map(r => (r - mu) ** 2)));
+  if (!(sd > 0)) return { ok: false, reason: 'There is not enough price movement to size a range.' };
+  const hz = [1, 2, 3].map(m => { const hb = Math.round(bp.bpm * m); return { m, hb, sd: sd * Math.sqrt(hb), label: m + (m === 1 ? ' month' : ' months') }; });
+  hz.forEach(h => { h.lo = c * Math.exp(-h.sd); h.hi = c * Math.exp(h.sd); });
+  const dir = o.dir;
+  if (dir === 'neutral') return { ok: true, dir, hz, sd, support: levels.support, resistance: levels.resistance };
+  const long = dir === 'bull', s = long ? 1 : -1;
+  const pri = o.primary && o.primary.bias === (long ? 'bull' : 'bear') ? o.primary : null;
+  const rsiNow = ind.rsi[n - 1], s20 = ind.sma20[n - 1];
+  let entry = c, entryNote = 'Current price';
+  if (pri && pri.status === 'forming') { entry = pri.trigger; entryNote = `${long ? 'Close above' : 'Close below'} ${fmt(entry)} to confirm the pattern`; }
+  else if (long && rsiNow !== null && rsiNow >= 70 && s20) entryNote = `RSI is ${rsiNow.toFixed(0)}, so price is stretched. A pullback toward ${fmt(s20)} is a safer entry`;
+  else if (!long && rsiNow !== null && rsiNow <= 30) entryNote = `RSI is ${rsiNow.toFixed(0)}, so price is stretched downward and a bounce is common`;
+  // stop
+  const cands = [];
+  if (pri) cands.push(pri.invalid);
+  if (long && levels.support) cands.push(levels.support.p * 0.99);
+  if (!long && levels.resistance) cands.push(levels.resistance.p * 1.01);
+  cands.push(entry * (1 - s * 2 * atrFrac));
+  const okStop = cands.filter(v => s * (entry - v) >= 0.5 * atrFrac * entry);
+  const stop = long ? Math.max(...okStop) : Math.min(...okStop);
+  // targets ladder in the plan direction
+  const lv = [];
+  levels.all.forEach(l => { if (s * (l.p - entry) > 0.015 * entry) lv.push({ p: l.p, src: `${long ? 'Resistance' : 'Support'}, ${l.touches} touches` }); });
+  if (pri && s * (pri.target - entry) > 0.015 * entry) lv.push({ p: pri.target, src: `${pri.name} target` });
+  const ext = long ? Math.max(...bars.map(b => b.h)) : Math.min(...bars.map(b => b.l));
+  if (s * (ext - entry) > 0.015 * entry) lv.push({ p: ext, src: long ? 'Highest price in this data' : 'Lowest price in this data' });
+  lv.sort((a, b) => s * (a.p - b.p));
+  const kept = [];
+  for (const x of lv) { const last = kept[kept.length - 1]; if (last && Math.abs(x.p - last.p) / last.p < 0.025) { if (x.src.indexOf('target') > -1) kept[kept.length - 1] = x; continue; } kept.push(x); }
+  const zOf = (p, h) => Math.abs(Math.log(p / c)) / h.sd;
+  const rows = hz.map(h => {
+    const inr = kept.filter(x => zOf(x.p, h) <= 1), beyond = kept.find(x => zOf(x.p, h) > 1) || null;
+    const t = inr.length ? inr[inr.length - 1] : { p: c * Math.exp(s * h.sd), src: 'One typical swing from here' };
+    return { label: h.label, hb: h.hb, lo: h.lo, hi: h.hi, target: t.p, src: t.src, move: t.p / c - 1, rr: Math.abs(t.p - entry) / Math.abs(entry - stop), beyond: beyond ? { p: beyond.p, src: beyond.src, move: beyond.p / c - 1 } : null };
+  });
+  return { ok: true, dir, long, entry, entryNote, stop, stopPct: stop / entry - 1, rows, hz, sd, pri: pri ? pri.name : null };
+}
+
+/* ---------- CSV parsing ---------- */
+function splitLine(line, sep) {
+  const out = []; let cur = '', q = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') { if (q && line[i + 1] === '"') { cur += '"'; i++; } else q = !q; }
+    else if (ch === sep && !q) { out.push(cur); cur = ''; }
+    else cur += ch;
+  }
+  out.push(cur); return out.map(s => s.trim());
+}
+const MONTHS = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
+function parseDate(s) {
+  s = String(s || '').trim().replace(/^"|"$/g, ''); if (!s) return null;
+  let m = s.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/); if (m) return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+  m = s.match(/^(\d{1,2})[-\/ ]([A-Za-z]{3})[a-z]*[-\/ ,]*(\d{2,4})/); if (m && MONTHS[m[2].toLowerCase()] !== undefined) { const y = +m[3] < 100 ? 2000 + +m[3] : +m[3]; return new Date(Date.UTC(y, MONTHS[m[2].toLowerCase()], +m[1])); }
+  m = s.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})/); if (m) return new Date(Date.UTC(+m[3], +m[2] - 1, +m[1]));
+  const t = Date.parse(s); return isNaN(t) ? null : new Date(t);
+}
+const num = s => { const t = String(s || '').replace(/[,₹$"\s]/g, ''); if (t === '' || t === '-' || /^null$/i.test(t)) return NaN; return parseFloat(t); };
+function parseCSV(text) {
+  const lines = String(text || '').replace(/^﻿/, '').split(/\r?\n/).filter(l => l.trim());
+  if (lines.length < 2) throw new Error('Paste at least a header row and a few rows of prices.');
+  const head = lines[0], sep = [',', ';', '\t'].map(s => [s, head.split(s).length]).sort((a, b) => b[1] - a[1])[0][0];
+  const cols = splitLine(head, sep).map(s => s.toLowerCase().replace(/[^a-z ]/g, '').trim());
+  const find = (...names) => cols.findIndex(c => names.some(n => c === n || c.startsWith(n)));
+  const iD = find('date', 'timestamp', 'time', 'day');
+  let iC = cols.findIndex(c => c === 'close' || c === 'close price' || c === 'ltp' || c === 'last' || c === 'price');
+  if (iC < 0) iC = find('close', 'adj close');
+  const iO = find('open'), iH = find('high'), iL = find('low'), iV = find('volume', 'vol', 'total traded quantity', 'shares traded', 'no of shares');
+  if (iC < 0) throw new Error('No Close column found. The header row needs Date and Close, ideally Open, High, Low and Volume too.');
+  let rows = [];
+  for (let k = 1; k < lines.length; k++) {
+    const f = splitLine(lines[k], sep), c = num(f[iC]); if (!isFinite(c)) continue;
+    const o = iO >= 0 ? num(f[iO]) : NaN, h = iH >= 0 ? num(f[iH]) : NaN, l = iL >= 0 ? num(f[iL]) : NaN;
+    const hasO = isFinite(o) && isFinite(h) && isFinite(l);
+    rows.push({ d: iD >= 0 ? parseDate(f[iD]) : null, o: hasO ? o : c, h: hasO ? Math.max(h, o, c) : c, l: hasO ? Math.min(l, o, c) : c, c, v: iV >= 0 && isFinite(num(f[iV])) ? num(f[iV]) : 0, ohlc: hasO });
+  }
+  if (rows.length < 30) throw new Error(`Only ${rows.length} usable rows found. At least 30 daily bars are needed, and 150 or more works best.`);
+  if (rows[0].d && rows[rows.length - 1].d && rows[0].d > rows[rows.length - 1].d) rows.reverse();
+  const bars = rows.map((r, i) => ({ i, d: r.d, o: r.o, h: r.h, l: r.l, c: r.c, v: r.v }));
+  return { bars, closeOnly: !rows.some(r => r.ohlc), hasVolume: rows.some(r => r.v > 0) };
+}
+
+function fmt(x) { return Number(x).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+
+root.PS = { analyze, parseCSV, fmt, sma, rsi, zigzag, clamp, avg };
+if (typeof module !== 'undefined') module.exports = root.PS;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
+/* Synthetic example series. Shapes are drawn from key points, then roughened with noise.
+   They are teaching examples, not real market data. */
+(function (root) {
+'use strict';
+
+function rng(seed) { let s = seed >>> 0; return () => { s = (s + 0x6D2B79F5) >>> 0; let t = s; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+
+function path(points) {
+  const out = [];
+  for (let k = 0; k < points.length - 1; k++) {
+    const [i0, p0] = points[k], [i1, p1] = points[k + 1];
+    for (let i = i0; i < i1; i++) { const t = (i - i0) / (i1 - i0), e = (1 - Math.cos(Math.PI * t)) / 2; out.push(p0 + (p1 - p0) * (0.55 * t + 0.45 * e)); }
+  }
+  out.push(points[points.length - 1][1]);
+  return out;
+}
+
+function toBars(ideal, seed, endDate, vol0) {
+  const r = rng(seed), n = ideal.length, bars = [];
+  let noise = 0, prev = ideal[0];
+  const dates = []; const d = new Date(endDate);
+  while (dates.length < n) { const wd = d.getUTCDay(); if (wd !== 0 && wd !== 6) dates.push(new Date(d)); d.setUTCDate(d.getUTCDate() - 1); }
+  dates.reverse();
+  for (let i = 0; i < n; i++) {
+    noise = 0.55 * noise + (r() - 0.5) * 0.012;
+    const c = ideal[i] * (1 + noise), o = prev * (1 + (r() - 0.5) * 0.006);
+    const h = Math.max(o, c) * (1 + r() * 0.007), l = Math.min(o, c) * (1 - r() * 0.007);
+    const ret = Math.abs(c / prev - 1);
+    bars.push({ i, d: dates[i], o, h, l, c, v: Math.round(vol0 * (0.7 + 0.6 * r()) * (1 + 28 * ret)) });
+    prev = c;
+  }
+  return bars;
+}
+
+function hsPoints() {
+  return [[0, 100], [18, 112], [34, 130], [42, 120], [52, 118], [62, 142], [74, 124], [82, 119], [92, 131], [100, 127], [108, 117], [116, 111], [120, 108]];
+}
+const SAMPLES = {
+  cup: {
+    label: 'Cup & handle', note: 'Synthetic: advance, rounded base, short handle, breakout.',
+    build() {
+      const pts = [[0, 98], [30, 118], [60, 140]];
+      for (let i = 1; i <= 15; i++) { const x = 2 * i / 15 - 1; pts.push([60 + i * 6, 140 - 42 * (1 - x * x)]); }
+      pts.push([156, 130], [162, 136], [168, 134], [176, 150], [186, 156]);
+      return toBars(path(pts), 11, '2026-10-09', 1.2e6);
+    }
+  },
+  hs: {
+    label: 'Head & shoulders top', note: 'Synthetic: three peaks, neckline break, follow-through.',
+    build() { return toBars(path(hsPoints()), 23, '2026-10-09', 2.0e6); }
+  },
+  ihs: {
+    label: 'Inverse head & shoulders', note: 'Synthetic: mirror image of a head and shoulders top.',
+    build() { return toBars(path(hsPoints().map(([i, p]) => [i, 18000 / p])), 37, '2026-10-09', 1.6e6); }
+  },
+  dbot: {
+    label: 'Double bottom', note: 'Synthetic: two lows at the same level, then a break above the middle peak.',
+    build() { return toBars(path([[0, 125], [22, 112], [42, 100], [60, 113], [80, 101], [100, 114], [108, 119], [114, 122]]), 41, '2026-10-09', 1.4e6); }
+  },
+  asc: {
+    label: 'Ascending triangle', note: 'Synthetic: flat ceiling, rising lows, pressing against resistance.',
+    build() { return toBars(path([[0, 96], [14, 108], [26, 120], [38, 108], [50, 120], [60, 112], [72, 120], [80, 115], [90, 119.5], [93, 118.5]]), 53, '2026-10-09', 1.1e6); }
+  },
+  up: {
+    label: 'Steady uptrend', note: 'Synthetic: higher highs and higher lows with no classic pattern.',
+    build() { return toBars(path([[0, 100], [25, 112], [40, 106], [70, 128], [90, 120], [130, 150], [150, 144], [170, 162]]), 67, '2026-10-09', 1.3e6); }
+  }
+};
+
+function toCSV(bars) {
+  const rows = ['Date,Open,High,Low,Close,Volume'];
+  for (const b of bars) rows.push([b.d.toISOString().slice(0, 10), b.o.toFixed(2), b.h.toFixed(2), b.l.toFixed(2), b.c.toFixed(2), b.v].join(','));
+  return rows.join('\n');
+}
+
+root.SAMPLES = SAMPLES; root.sampleCSV = toCSV;
+if (typeof module !== 'undefined') module.exports = { SAMPLES, toCSV };
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
+(function () {
+'use strict';
+const $ = s => document.querySelector(s);
+const fmt = PS.fmt, clamp = PS.clamp;
+const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const dFull = d => d ? `${String(d.getUTCDate()).padStart(2, '0')} ${MON[d.getUTCMonth()]} ${d.getUTCFullYear()}` : '';
+const dShort = d => d ? `${d.getUTCDate()} ${MON[d.getUTCMonth()]}` : '';
+const dMon = d => d ? `${MON[d.getUTCMonth()]} ${String(d.getUTCFullYear()).slice(2)}` : '';
+const pct = x => `${x >= 0 ? '+' : '−'}${Math.abs(x * 100).toFixed(1)}%`;
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const volFmt = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 });
+
+const state = { a: null, meta: null, label: '', source: '', range: 'auto', sel: null, show: { s20: true, s50: true, vol: true, rsi: true } };
+
+/* ---------- loading ---------- */
+function showMsg(t) { const m = $('#msg'); m.hidden = !t; m.textContent = t || ''; }
+function load(bars, meta, source) {
+  const a = PS.analyze(bars);
+  state.a = a; state.meta = meta; state.source = source; state.range = 'auto';
+  const first = a.patterns.find(p => p.active) || null;
+  state.sel = first ? first.id : null;
+  showMsg('');
+  renderAll();
+}
+function loadSample(key) {
+  const bars = SAMPLES[key].build();
+    state.label = SAMPLES[key].label;
+  load(bars, { closeOnly: false, hasVolume: true, sample: true }, 'Synthetic example: ' + SAMPLES[key].label);
+}
+function loadText(text, srcName) {
+  try {
+    const r = PS.parseCSV(text);
+    state.label = cleanSym($('#symbol').value) || srcName || 'Your data';
+    load(r.bars, { closeOnly: r.closeOnly, hasVolume: r.hasVolume, sample: false }, srcName || 'Pasted data');
+    $('#sample').value = '';
+  } catch (e) { showMsg(e.message || 'That data could not be read.'); }
+}
+
+/* ---------- automatic market-data fetch ---------- */
+async function autoLoadSymbol() {
+  const raw = $('#symbol').value.trim();
+  const sym = cleanSym(raw);
+  if (!sym) { showMsg('Enter a stock ticker first, for example RELIANCE, TCS or AAPL.'); $('#symbol').focus(); return; }
+  const market = $('#market').value;
+  let ticker = raw.toUpperCase().replace(/^NSE:|^BSE:/, '').replace(/\s+/g, '');
+  if (market === 'NSE' && !/\.(NS|BO)$/.test(ticker)) ticker = ticker + '.NS';
+  if (market === 'BSE' && !/\.(NS|BO)$/.test(ticker)) ticker = ticker + '.BO';
+  if (market === 'US') ticker = ticker.replace(/\.(NS|BO)$/, '');
+  const btn = $('#autoLoad');
+  btn.disabled = true; btn.textContent = 'Fetching…';
+  showMsg('Requesting daily price history for ' + ticker + '…');
+  try {
+    const json = await fetchYahooChart(ticker, '5y');
+    const result = json && json.chart && json.chart.result && json.chart.result[0];
+    if (!result) throw new Error((json && json.chart && json.chart.error && json.chart.error.description) || 'No price history was returned for that ticker. Check ticker and market.');
+    const q = result.indicators && result.indicators.quote && result.indicators.quote[0];
+    const ts = result.timestamp || [];
+    if (!q || !ts.length) throw new Error('The provider returned no usable daily candles.');
+    const bars = [];
+    for (let i = 0; i < ts.length; i++) {
+      const c = q.close && q.close[i];
+      if (!Number.isFinite(c)) continue;
+      const o = q.open && Number.isFinite(q.open[i]) ? q.open[i] : c;
+      const h = q.high && Number.isFinite(q.high[i]) ? q.high[i] : Math.max(o, c);
+      const l = q.low && Number.isFinite(q.low[i]) ? q.low[i] : Math.min(o, c);
+      bars.push({ i: bars.length, d: new Date(ts[i] * 1000), o, h: Math.max(h,o,c), l: Math.min(l,o,c), c, v: q.volume && Number.isFinite(q.volume[i]) ? q.volume[i] : 0 });
+    }
+    if (bars.length < 30) throw new Error('Only ' + bars.length + ' valid daily bars were returned. At least 30 are needed; 150+ is preferable.');
+    state.label = ticker.replace(/\.(NS|BO)$/, '');
+    $('#symbol').value = state.label;
+    load(bars, { closeOnly: false, hasVolume: bars.some(b => b.v > 0), sample: false, auto: true }, 'Yahoo Finance daily data · ' + ticker);
+    $('#sample').value = '';
+    $('#getData').hidden = true;
+  } catch (err) {
+    let message = err && err.message ? err.message : 'Automatic data retrieval failed.';
+    if (err instanceof TypeError || /fetch|network|cors|failed to fetch/i.test(message)) {
+      message = 'Automatic retrieval was blocked by the browser or network. This standalone HTML cannot bypass the data provider’s access restrictions. Open Yahoo Finance history for this ticker and upload its CSV, or run the page in an environment with a market-data API/proxy.';
+    }
+    showMsg(message);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Fetch & analyse';
+  }
+}
+
+/* ---------- derived text ---------- */
+const statusText = p => p.status === 'forming' ? 'Forming' : p.status === 'target reached' ? 'Target reached' : (p.bias === 'bear' ? 'Breakdown confirmed' : 'Breakout confirmed');
+const biasText = b => b === 'bull' ? 'Bullish' : b === 'bear' ? 'Bearish' : 'Neutral';
+const dateOf = i => state.a.bars[Math.min(i, state.a.bars.length - 1)].d;
+
+function renderBadge() {
+  const b = state.a.bars, n = b.length;
+  const span = b[0].d ? ` · ${dFull(b[0].d)} to ${dFull(b[n - 1].d)}` : '';
+  $('#srcBadge').textContent = `${state.source} · ${n} bars${span}`;
+}
+
+function renderOutlook() {
+  const a = state.a, o = a.outlook, b = a.bars, n = b.length, c = b[n - 1].c, el = $('#outlook');
+  const pri = o.primary, sup = a.levels.support, res = a.levels.resistance;
+  const half = Math.abs(o.score) / 2, fillStyle = o.score >= 0 ? `left:50%;width:${half}%` : `left:${50 - half}%;width:${half}%`;
+  const sgn = v => (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v);
+  const rows = [
+    ['Last close', `${fmt(c)}<small>${dFull(b[n - 1].d)}</small>`],
+    ['Nearest support', sup ? `${fmt(sup.p)}<small>${pct(sup.p / c - 1)}</small>` : '<small>none found</small>'],
+    ['Nearest resistance', res ? `${fmt(res.p)}<small>${pct(res.p / c - 1)}</small>` : '<small>none found</small>']
+  ];
+  if (pri) {
+    rows.push([`${pri.name} target`, `${fmt(pri.target)}<small class="${pri.target >= c ? 'up' : 'down'}">${pct(pri.target / c - 1)}</small>`]);
+    rows.push(['Pattern fails at', `${fmt(pri.invalid)}<small>${pct(pri.invalid / c - 1)}</small>`]);
+  }
+  el.innerHTML = `
+    <div class="verdict">
+      <h2>${esc(state.label || 'Outlook')}</h2>
+      <div class="label ${o.dir === 'neutral' ? '' : o.dir}">${o.label}</div>
+      <div>
+        <div class="gauge" role="img" aria-label="Bias score ${o.score} on a scale of minus 100 to plus 100"><div class="fill ${o.dir}" style="${fillStyle}"></div></div>
+        <div class="scale"><span>Bearish</span><span class="num">Bias ${sgn(o.score)}</span><span>Bullish</span></div>
+      </div>
+      <div class="parts">Patterns <b class="num">${sgn(o.parts.pattern)}</b> Trend <b class="num">${sgn(o.parts.trend)}</b> Momentum <b class="num">${sgn(o.parts.momentum)}</b></div>
+      <ul class="why">${o.why.map(w => `<li>${esc(w)}</li>`).join('')}</ul>
+      <div class="card" style="padding:12px;background:var(--bg)">
+        <h2>Beginner trade suggestion</h2>
+        <p style="margin-top:6px"><b>${o.dir === 'bull' ? 'Lean: LONG / Buy only after confirmation' : o.dir === 'bear' ? 'Lean: SHORT / Sell only if short-selling is allowed' : 'Lean: WAIT — no clear direction'}</b></p>
+        <p class="hint" style="margin-top:5px">${o.dir === 'bull' ? 'The signals lean upward. Consider waiting for a pullback that holds support or a confirmed breakout; do not chase a sharp rise.' : o.dir === 'bear' ? 'The signals lean downward. Avoid fresh buys until price improves. Short only if your market/account permits it and price confirms a breakdown.' : 'Signals are mixed. Stay out and wait for price to break above resistance or below support with confirmation.'} Use a stop-loss, keep the position small, and skip the trade if the risk/reward is poor.</p>
+      </div>
+    </div>
+    <div class="levels">
+      <h2>Key levels</h2>
+      <dl class="kv">${rows.map(r => `<dt>${esc(r[0])}</dt><dd>${r[1]}</dd>`).join('')}</dl>
+      <div><h2>What would change the picture</h2>
+        <ul class="scen" style="margin-top:8px">${o.scenarios.map(s => `<li>${esc(s)}</li>`).join('')}</ul></div>
+      <div class="copyRow"><button class="btn" id="copyBtn" type="button">Copy summary</button><span class="hint" id="copyNote"></span></div>
+      <textarea id="copyOut" hidden readonly aria-label="Summary text"></textarea>
+    </div>`;
+  $('#copyBtn').addEventListener('click', copySummary);
+}
+
+function summaryText() {
+  const a = state.a, o = a.outlook, b = a.bars, n = b.length, c = b[n - 1].c;
+  const L = [`${state.label || 'Chart'} — ${o.label} (bias ${o.score}) at ${fmt(c)} on ${dFull(b[n - 1].d)}`];
+  L.push('Beginner action: ' + (o.dir === 'bull' ? 'Lean LONG only after support holds or a breakout confirms; do not chase price.' : o.dir === 'bear' ? 'Lean SHORT only after a confirmed breakdown and only where short-selling is allowed; avoid fresh buys until trend improves.' : 'WAIT; signals are mixed. Wait for a confirmed break above resistance or below support.'));
+  L.push('Risk rule: set a stop-loss before entry, size the trade so a stop-out is affordable, and skip unclear setups.');
+  L.push('Forecast note: the 1M/3M/6M/1Y target table is a historical-volatility scenario, not a guaranteed price prediction; target-hit rates are based on comparable past windows.');
+  o.why.forEach(w => L.push('- ' + w));
+  a.patterns.filter(p => p.active).forEach(p => L.push(`- ${p.name}: ${statusText(p)}, fit ${p.conf}, trigger ${fmt(p.trigger)}, target ${fmt(p.target)}, fails at ${fmt(p.invalid)}`));
+  o.scenarios.forEach(s => L.push('- ' + s));
+  return L.join('\n');
+}
+function copySummary() {
+  const t = summaryText(), out = $('#copyOut'), note = $('#copyNote');
+  const fallback = () => { out.hidden = false; out.value = t; out.focus(); out.select(); note.textContent = 'Select and copy the text below.'; };
+  try { navigator.clipboard.writeText(t).then(() => { note.textContent = 'Copied.'; }, fallback); } catch (e) { fallback(); }
+}
+
+function renderPatterns() {
+  const a = state.a, box = $('#plist'), act = a.patterns.filter(p => p.active), old = a.patterns.filter(p => !p.active);
+  const card = p => {
+    const c = a.bars[a.bars.length - 1].c, d0 = dateOf(p.startI), d1 = dateOf(p.endI);
+    const range = d0 ? `${dShort(d0)} – ${dFull(d1)}` : `bars ${p.startI} – ${p.endI}`;
+    return `<button type="button" class="pcard" data-id="${p.id}" aria-pressed="${p.id === state.sel}">
+      <div class="ptop"><span class="pname">${esc(p.name)}</span><span class="chip ${p.bias}">${biasText(p.bias)}</span></div>
+      <div class="pmeta"><span>${statusText(p)}</span><span>${range}</span><span>${p.endI - p.startI + 1} bars</span></div>
+      <div class="meter"><span>Fit score <b class="num">${p.conf}</b></span><span class="track"><i style="width:${p.conf}%"></i></span></div>
+      <div class="pnums">
+        <div><span>${p.status === 'forming' ? 'Confirms at' : 'Triggered at'}</span><b>${fmt(p.trigger)}</b></div>
+        <div><span>Measured target</span><b>${fmt(p.target)} ${pct(p.target / c - 1)}</b></div>
+        <div><span>Fails at</span><b>${fmt(p.invalid)}</b></div>
+      </div>
+      <ul class="pnotes">${p.notes.slice(0, 3).map(n => `<li>${esc(n)}</li>`).join('')}</ul>
+    </button>`;
+  };
+  let h = '<h2>Patterns found</h2>';
+  if (!a.patterns.length) h += '<p class="empty">No classic pattern passes the filters on this data. That is a real result: the chart is trending or ranging without a clean textbook shape. The trend and momentum read in the outlook still applies.</p>';
+  if (act.length) h += act.map(card).join('');
+  else if (a.patterns.length) h += '<p class="empty">Nothing is active right now. Earlier patterns are listed below.</p>';
+  if (old.length) h += `<h2>Earlier in this data</h2>` + old.map(card).join('');
+  box.innerHTML = h;
+  box.querySelectorAll('.pcard').forEach(btn => btn.addEventListener('click', () => {
+    state.sel = btn.dataset.id; const p = a.patterns.find(x => x.id === state.sel);
+    state.range = 'auto'; renderPatterns(); drawChart();
+    $('#chartWrap').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }));
+}
+
+function renderStats() {
+  const a = state.a, b = a.bars, n = b.length, c = b[n - 1].c, ind = a.ind;
+  const chg = (k) => n > k ? c / b[n - 1 - k].c - 1 : null;
+  const hi = Math.max(...b.map(x => x.h)), lo = Math.min(...b.map(x => x.l));
+  const s20 = ind.sma20[n - 1], s50 = ind.sma50[n - 1], r = ind.rsi[n - 1];
+  const cls = v => v === null ? '' : v >= 0 ? 'up' : 'down';
+  const rows = [
+    ['1 day', chg(1) === null ? '' : `<span class="${cls(chg(1))}">${pct(chg(1))}</span>`],
+    ['20 bars', chg(20) === null ? '' : `<span class="${cls(chg(20))}">${pct(chg(20))}</span>`],
+    ['50-bar average', s50 === null ? 'n/a' : `${fmt(s50)}<small>${c >= s50 ? 'above' : 'below'}</small>`],
+    ['20-bar average', s20 === null ? 'n/a' : `${fmt(s20)}<small>${c >= s20 ? 'above' : 'below'}</small>`],
+    ['RSI (14)', r === null ? 'n/a' : `${r.toFixed(0)}<small>${r >= 70 ? 'overbought' : r <= 30 ? 'oversold' : 'neutral'}</small>`],
+    ['Daily range', `${(a.atr * 100).toFixed(1)}%<small>average, 14 bars</small>`],
+    [`High in data`, `${fmt(hi)}<small>${pct(c / hi - 1)}</small>`],
+    [`Low in data`, `${fmt(lo)}<small>${pct(c / lo - 1)}</small>`],
+    ['Swing size used', `${(a.thr * 100).toFixed(1)}%<small>to count a pivot</small>`]
+  ];
+  $('#stats').innerHTML = rows.filter(r => r[1] !== '').map(r => `<dt>${esc(r[0])}</dt><dd>${r[1]}</dd>`).join('');
+}
+
+/* ---------- chart ---------- */
+function niceTicks(min, max, count) {
+  const span = max - min, raw = span / count, mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const step = [1, 2, 2.5, 5, 10].map(m => m * mag).find(s => s >= raw) || raw;
+  const out = []; for (let v = Math.ceil(min / step) * step; v <= max + 1e-9; v += step) out.push(v);
+  return out;
+}
+function viewStart() {
+  const n = state.a.bars.length; let r = state.range;
+  let start = r === 'all' ? 0 : Math.max(0, n - (r === 'auto' ? Math.min(n, 140) : r));
+  const p = state.a.patterns.find(x => x.id === state.sel);
+  if (p && (r === 'auto' || (r !== 'all' && start > p.startI - 8 && false))) start = Math.min(start, Math.max(0, p.startI - 12));
+  return start;
+}
+
+function drawChart() {
+  const a = state.a; if (!a) return;
+  const wrap = $('#chartWrap'), bars = a.bars, n = bars.length;
+  const W = Math.max(300, Math.floor(wrap.clientWidth || 700)), mobile = W < 520;
+  const s0 = viewStart(), count = n - s0;
+  const padL = 8, padR = mobile ? 52 : 62, top = 8, gap = 10, axisH = 22;
+  const priceH = mobile ? 250 : 340;
+  const volH = state.show.vol && state.meta.hasVolume ? 54 : 0, rsiH = state.show.rsi ? 64 : 0;
+  const yVol0 = top + priceH + gap, yRsi0 = yVol0 + (volH ? volH + gap : 0);
+  const H = yRsi0 + (rsiH ? rsiH : 0) + axisH + (rsiH ? 0 : -gap + 4);
+  const plotW = W - padL - padR, step = plotW / count;
+  const x = i => padL + (i - s0 + 0.5) * step;
+  const sel = a.patterns.find(p => p.id === state.sel) || null;
+  const lastC = bars[n - 1].c;
+  let lo = Infinity, hi = -Infinity;
+  for (let i = s0; i < n; i++) { lo = Math.min(lo, bars[i].l); hi = Math.max(hi, bars[i].h); }
+  if (sel) {
+    const near = v => v > lastC * 0.65 && v < lastC * 1.35;
+    [sel.target, sel.invalid].forEach(v => { if (near(v)) { lo = Math.min(lo, v); hi = Math.max(hi, v); } });
+  }
+  const padY = (hi - lo) * 0.06; lo -= padY; hi += padY;
+  const y = v => top + (hi - v) / (hi - lo) * priceH;
+  const P = [];
+  P.push(`<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Price chart of ${esc(state.label || 'the loaded data')} with detected patterns"><defs><clipPath id="clipP"><rect x="${padL}" y="${top}" width="${plotW}" height="${priceH}"/></clipPath></defs>`);
+  // grid + price axis
+  niceTicks(lo, hi, mobile ? 5 : 6).forEach(t => {
+    P.push(`<line class="grid" x1="${padL}" x2="${W - padR}" y1="${y(t).toFixed(1)}" y2="${y(t).toFixed(1)}"/><text x="${W - padR + 6}" y="${(y(t) + 4).toFixed(1)}">${t >= 1000 ? Math.round(t).toLocaleString('en-IN') : t.toFixed(t >= 100 ? 0 : 1)}</text>`);
+  });
+  // x axis labels
+  const axisY = H - 6, labels = mobile ? 4 : 6, hasD = !!bars[0].d;
+  for (let k = 0; k <= labels; k++) {
+    const i = Math.min(n - 1, s0 + Math.round(k * (count - 1) / labels)), anchor = k === 0 ? 'start' : k === labels ? 'end' : 'middle';
+    const txt = hasD ? (count > 200 ? dMon(bars[i].d) : dShort(bars[i].d)) : String(i);
+    P.push(`<text x="${x(i).toFixed(1)}" y="${axisY}" text-anchor="${anchor}">${txt}</text>`);
+  }
+  // price series
+  if (state.meta.closeOnly || step < 1.8) {
+    P.push(`<polyline class="closeline" clip-path="url(#clipP)" points="${bars.slice(s0).map((b, k) => `${x(s0 + k).toFixed(1)},${y(b.c).toFixed(1)}`).join(' ')}"/>`);
+  } else {
+    const bw = Math.max(1, Math.min(14, step * 0.66));
+    let g = '<g clip-path="url(#clipP)">';
+    for (let i = s0; i < n; i++) {
+      const b = bars[i], up = b.c >= b.o, cx = x(i), yo = y(b.o), yc = y(b.c);
+      g += `<line class="${up ? 'up' : 'down'}" x1="${cx.toFixed(1)}" x2="${cx.toFixed(1)}" y1="${y(b.h).toFixed(1)}" y2="${y(b.l).toFixed(1)}" stroke-width="1"/>`;
+      g += `<rect class="${up ? 'up' : 'down'}" x="${(cx - bw / 2).toFixed(1)}" y="${Math.min(yo, yc).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(1, Math.abs(yo - yc)).toFixed(1)}" stroke="none"/>`;
+    }
+    P.push(g + '</g>');
+  }
+  // moving averages
+  const ma = (arr, cls) => {
+    const pts = []; for (let i = s0; i < n; i++) if (arr[i] !== null) pts.push(`${x(i).toFixed(1)},${y(arr[i]).toFixed(1)}`);
+    if (pts.length > 1) P.push(`<polyline class="${cls}" clip-path="url(#clipP)" points="${pts.join(' ')}"/>`);
+  };
+  if (state.show.s20) ma(a.ind.sma20, 'ma20'); if (state.show.s50) ma(a.ind.sma50, 'ma50');
+  // pattern overlay
+  if (sel) P.push(overlay(sel, x, y, n, sel.bias));
+  // last price
+  P.push(`<line class="lastLine" x1="${padL}" x2="${W - padR}" y1="${y(lastC).toFixed(1)}" y2="${y(lastC).toFixed(1)}"/><text class="halo lbl" x="${W - padR + 6}" y="${(y(lastC) + 4).toFixed(1)}">${lastC.toFixed(lastC >= 100 ? 1 : 2)}</text><text class="lbl" x="${W - padR + 6}" y="${(y(lastC) + 4).toFixed(1)}">${lastC.toFixed(lastC >= 100 ? 1 : 2)}</text>`);
+  // volume
+  if (volH) {
+    let vmax = 1; for (let i = s0; i < n; i++) vmax = Math.max(vmax, bars[i].v);
+    let g = `<g opacity=".5">`;
+    for (let i = s0; i < n; i++) { const b = bars[i], h = b.v / vmax * volH, bw = Math.max(1, Math.min(14, step * 0.66)); g += `<rect class="${b.c >= b.o ? 'up' : 'down'}" stroke="none" x="${(x(i) - bw / 2).toFixed(1)}" y="${(yVol0 + volH - h).toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}"/>`; }
+    P.push(g + `</g><text x="${W - padR + 6}" y="${yVol0 + 10}">Vol</text><text x="${W - padR + 6}" y="${yVol0 + 22}">${volFmt.format(vmax)}</text>`);
+  }
+  // RSI
+  if (rsiH) {
+    const yr = v => yRsi0 + (100 - v) / 100 * rsiH;
+    P.push(`<line class="grid" x1="${padL}" x2="${W - padR}" y1="${yr(70)}" y2="${yr(70)}" stroke-dasharray="3 3"/><line class="grid" x1="${padL}" x2="${W - padR}" y1="${yr(30)}" y2="${yr(30)}" stroke-dasharray="3 3"/>`);
+    P.push(`<text x="${W - padR + 6}" y="${yr(70) + 4}">70</text><text x="${W - padR + 6}" y="${yr(30) + 4}">30</text><text x="${padL + 2}" y="${yRsi0 + 10}">RSI 14</text>`);
+    const pts = []; for (let i = s0; i < n; i++) if (a.ind.rsi[i] !== null) pts.push(`${x(i).toFixed(1)},${yr(a.ind.rsi[i]).toFixed(1)}`);
+    if (pts.length > 1) P.push(`<polyline class="rsiLine" points="${pts.join(' ')}"/>`);
+  }
+  P.push(`<line class="cross" id="cross" x1="0" x2="0" y1="${top}" y2="${H - axisH}" visibility="hidden"/><rect id="hit" x="${padL}" y="${top}" width="${plotW}" height="${H - top - axisH}" fill="transparent"/></svg>`);
+  wrap.innerHTML = P.join('');
+  const svg = wrap.querySelector('svg'), cross = svg.querySelector('#cross'), hit = svg.querySelector('#hit');
+  const showAt = ev => {
+    const r = svg.getBoundingClientRect(), px = (ev.clientX - r.left) * (W / r.width);
+    const i = clamp(Math.round((px - padL) / step - 0.5) + s0, s0, n - 1), b = bars[i];
+    cross.setAttribute('x1', x(i)); cross.setAttribute('x2', x(i)); cross.setAttribute('visibility', 'visible');
+    $('#readout').innerHTML = readout(b);
+  };
+  hit.addEventListener('pointermove', showAt); hit.addEventListener('pointerdown', showAt);
+  hit.addEventListener('pointerleave', () => { cross.setAttribute('visibility', 'hidden'); $('#readout').innerHTML = readout(bars[n - 1]); });
+  $('#readout').innerHTML = readout(bars[n - 1]);
+}
+function readout(b) {
+  const d = b.d ? dFull(b.d) + '  ' : '';
+  if (state.meta.closeOnly) return `${d}Close ${fmt(b.c)}`;
+  return `${d}O ${fmt(b.o)}  H ${fmt(b.h)}  L ${fmt(b.l)}  C ${fmt(b.c)}${b.v ? '  Vol ' + volFmt.format(b.v) : ''}`;
+}
+
+function overlay(p, x, y, n, bias) {
+  const d = p.draw, o = ['<g clip-path="url(#clipP)">'];
+  const X = q => x(q.i).toFixed(1), Y = q => y(q.p).toFixed(1);
+  if (d.shade) o.push(`<polygon class="shade" points="${d.shade.map(q => X(q) + ',' + Y(q)).join(' ')}"/>`);
+  if (d.curve) o.push(`<polyline class="curve" points="${d.curve.map(q => X(q) + ',' + Y(q)).join(' ')}"/>`);
+  if (d.poly) o.push(`<polyline class="swing" points="${d.poly.map(q => X(q) + ',' + Y(q)).join(' ')}"/>`);
+  if (d.box) o.push(`<rect class="box" x="${X(d.box.a)}" y="${Math.min(y(d.box.a.p), y(d.box.b.p)).toFixed(1)}" width="${Math.max(2, x(d.box.b.i) - x(d.box.a.i)).toFixed(1)}" height="${Math.abs(y(d.box.a.p) - y(d.box.b.p)).toFixed(1)}"/>`);
+  (d.lines || []).forEach(l => {
+    const cls = l.k === 'target' ? 'tgt ' + bias : l.k;
+    o.push(`<line class="${cls}" x1="${X(l.a)}" y1="${Y(l.a)}" x2="${X(l.b)}" y2="${Y(l.b)}"/>`);
+  });
+  (d.points || []).forEach(q => o.push(`<circle class="pt" cx="${X(q)}" cy="${Y(q)}" r="3.4"/>`));
+  const mid = d.poly ? PS.avg(d.poly.map(q => q.p)) : (d.points && d.points.length ? PS.avg(d.points.map(q => q.p)) : 0);
+  (d.points || []).forEach(q => {
+    if (!q.l) return; const above = q.p >= mid, ty = (y(q.p) + (above ? -9 : 15)).toFixed(1);
+    o.push(`<text class="halo lbl" text-anchor="middle" x="${X(q)}" y="${ty}">${esc(q.l)}</text><text class="lbl" text-anchor="middle" x="${X(q)}" y="${ty}">${esc(q.l)}</text>`);
+  });
+  (d.lines || []).forEach(l => {
+    if (!l.l) return;
+    const tx = l.k === 'target' ? Math.max(x(n - 1) - 4, x(l.a.i) + 4) : x(l.a.i) + 4, anchor = l.k === 'target' ? 'end' : 'start';
+    const ty = (l.k === 'target' ? y(l.a.p) - 5 : y(l.a.p) - 5).toFixed(1);
+    const txt = l.k === 'target' ? `${l.l} ${fmt(l.a.p)}` : l.l;
+    o.push(`<text class="halo lbl" text-anchor="${anchor}" x="${tx.toFixed ? tx.toFixed(1) : tx}" y="${ty}">${esc(txt)}</text><text class="lbl" text-anchor="${anchor}" x="${tx.toFixed ? tx.toFixed(1) : tx}" y="${ty}">${esc(txt)}</text>`);
+  });
+  o.push('</g>'); return o.join('');
+}
+
+/* ---------- controls ---------- */
+function renderControls() {
+  const nb = state.a.bars.length;
+  const R = [['3M', 63], ['6M', 126], ['1Y', 252], ['2Y', 504], ['3Y', 756], ['5Y', 1260], ['All', 'all'], ['Fit', 'auto']].filter(r => typeof r[1] !== 'number' || r[1] < nb * 1.15 || r[1] <= 252);
+  const box = $('#ranges'); box.innerHTML = '';
+  R.forEach(([t, v]) => {
+    const b = document.createElement('button'); b.type = 'button'; b.textContent = t;
+    b.setAttribute('aria-pressed', String(state.range === v)); b.addEventListener('click', () => { state.range = v; renderControls(); drawChart(); });
+    box.appendChild(b);
+  });
+  const T = [['s20', '20-bar average', 'var(--sma20)'], ['s50', '50-bar average', 'var(--sma50)'], ['vol', 'Volume', 'var(--muted)'], ['rsi', 'RSI', 'var(--ink)']];
+  const tb = $('#toggles'); tb.innerHTML = '';
+  T.forEach(([k, t, col]) => {
+    if (k === 'vol' && !state.meta.hasVolume) return;
+    const l = document.createElement('label'); l.innerHTML = `<input type="checkbox" id="tg_${k}" ${state.show[k] ? 'checked' : ''}><span class="sw" style="background:${col}"></span>${t}`;
+    l.querySelector('input').addEventListener('change', e => { state.show[k] = e.target.checked; drawChart(); });
+    tb.appendChild(l);
+  });
+}
+
+function renderAll() { renderBadge(); renderOutlook(); renderForecast(); renderControls(); renderPatterns(); renderStats(); renderTradeDesk(); drawChart(); }
+
+/* ---------- multi-horizon forecast: historical volatility + empirical touch rates ---------- */
+function renderForecast() {
+  const host = $('#forecastResults'), status = $('#forecastStatus');
+  if (!state?.a?.bars?.length) { host.innerHTML = '<p class="empty">Load a stock chart to calculate targets.</p>'; status.textContent = 'Waiting for data'; return; }
+  const bars = state.a.bars, closes = bars.map(x => x.c), n = bars.length, last = bars[n - 1], c = last.c;
+  if (n < 35) { host.innerHTML = '<p class="empty">At least 35 daily bars are needed for a rough forecast. More history improves the historical comparison.</p>'; status.textContent = 'Insufficient history'; return; }
+  const look = Math.min(252, n - 1), rets = [];
+  for (let i = n - look; i < n; i++) if (closes[i] > 0 && closes[i-1] > 0) rets.push(Math.log(closes[i] / closes[i-1]));
+  const mu = rets.reduce((a,x)=>a+x,0) / Math.max(1,rets.length);
+  const variance = rets.reduce((a,x)=>a+(x-mu)**2,0) / Math.max(1,rets.length-1);
+  const dailyVol = Math.sqrt(variance);
+  if (!(dailyVol > 0) || !Number.isFinite(dailyVol)) { host.innerHTML = '<p class="empty">Not enough price variation to estimate targets.</p>'; status.textContent = 'Unavailable'; return; }
+  const o = state.a.outlook, sign = o.dir === 'bull' ? 1 : o.dir === 'bear' ? -1 : (mu >= 0 ? 1 : -1);
+  const horizons = [{label:'1 month',h:21},{label:'3 months',h:63},{label:'6 months',h:126},{label:'1 year',h:252}];
+  const money = v => Number.isFinite(v) ? fmt(v) : '—';
+  const pct1 = v => (v >= 0 ? '+' : '') + (v*100).toFixed(1) + '%';
+  const rows = horizons.map(({label,h}) => {
+    const sigma = dailyVol * Math.sqrt(h), drift = mu * h;
+    // A trend-tilted, half-sigma scenario target; capped to avoid absurd extrapolation from noisy drift.
+    const logMove = Math.max(-0.8, Math.min(0.8, drift + sign * 0.5 * sigma));
+    const target = c * Math.exp(logMove), targetRet = target / c - 1;
+    let trials = 0, hits = 0;
+    for (let i = 0; i + h < n; i++) {
+      const start = closes[i]; if (!(start > 0)) continue;
+      let reached = false;
+      if (sign > 0) { for (let j=i+1;j<=i+h;j++) if (bars[j].h >= start * (target/c)) { reached=true; break; } }
+      else { for (let j=i+1;j<=i+h;j++) if (bars[j].l <= start * (target/c)) { reached=true; break; } }
+      trials++; if (reached) hits++;
+    }
+    const prob = trials >= 8 ? Math.round(100 * hits / trials) : null;
+    const adverse = c * Math.exp(Math.max(-0.8, Math.min(0.8, drift - sign * sigma)));
+    const action = o.dir === 'bull'
+      ? (prob !== null && prob >= 60 ? 'Consider LONG after confirmation; use a stop-loss.' : 'Bullish bias, but wait for a better entry/confirmation.')
+      : o.dir === 'bear'
+        ? (prob !== null && prob >= 60 ? 'Avoid fresh buys; SHORT only after breakdown and if permitted.' : 'Bearish bias; wait for breakdown confirmation or stay out.')
+        : 'WAIT: mixed trend. Let price confirm a direction first.';
+    return {label,h,target,targetRet,prob,trials,adverse,action};
+  });
+  const dirLabel = o.dir === 'bull' ? 'Bullish · prefer LONG setups' : o.dir === 'bear' ? 'Bearish · avoid fresh buys' : 'Neutral · WAIT for confirmation';
+  status.textContent = `${n} bars · ${dirLabel}`;
+  host.innerHTML = `<p style="margin:0 0 10px"><b>Final verdict: ${esc(dirLabel)}.</b> Targets are scenario estimates from recent drift and volatility. Target-hit odds are the percentage of comparable historical windows where the high/low touched the same percentage move within that horizon.</p>
+  <div style="overflow:auto"><table style="width:100%;border-collapse:collapse;min-width:760px;font-size:13px"><thead><tr>${['Horizon','Projected target','Move from close','Estimated hit rate','Historical samples','Adverse scenario','Best advice'].map(x=>`<th style="text-align:left;padding:8px;border-bottom:1px solid var(--line)">${x}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr><td style="padding:8px;border-bottom:1px solid var(--line);vertical-align:top"><b>${r.label}</b></td><td style="padding:8px;border-bottom:1px solid var(--line);vertical-align:top"><b>${money(r.target)}</b></td><td class="${r.targetRet>=0?'up':'down'}" style="padding:8px;border-bottom:1px solid var(--line);vertical-align:top">${pct1(r.targetRet)}</td><td style="padding:8px;border-bottom:1px solid var(--line);vertical-align:top"><b>${r.prob===null?'Not enough samples':r.prob+'%'}</b></td><td style="padding:8px;border-bottom:1px solid var(--line);vertical-align:top">${r.trials}</td><td style="padding:8px;border-bottom:1px solid var(--line);vertical-align:top">${money(r.adverse)}</td><td style="padding:8px;border-bottom:1px solid var(--line);vertical-align:top">${esc(r.action)}</td></tr>`).join('')}</tbody></table></div>
+  <p class="hint" style="margin-top:10px">Important: these are not broker/analyst price targets or calibrated future probabilities. Historical windows overlap and may not represent future market conditions; longer horizons are especially uncertain. A hit rate is not the chance of making a profit. Use a stop-loss, position sizing, and fundamental/news checks before acting.</p>`;
+}
+
+function calcATR14(bars, end) {
+  const vals = [];
+  const from = Math.max(1, end - 13);
+  for (let i = from; i <= end; i++) {
+    const b = bars[i], prev = bars[i - 1];
+    vals.push(Math.max(b.h - b.l, Math.abs(b.h - prev.c), Math.abs(b.l - prev.c)));
+  }
+  return vals.length ? vals.reduce((a,b)=>a+b,0)/vals.length : null;
+}
+function tradeProbability(bars, side, stopMult, horizon, rMultiple, currentAtr) {
+  // Walk-forward analogue: each past close is an entry, with stop/target set from ATR at that date.
+  // No future bars are used to calculate the historical entry's ATR.
+  let eligible=0, targetFirst=0, stopFirst=0, unresolved=0;
+  const start = Math.max(30, bars.length - 500);
+  for (let i=start; i<bars.length-horizon; i++) {
+    const atr = calcATR14(bars, i);
+    if (!(atr > 0) || !isFinite(atr)) continue;
+    const entry=bars[i].c, risk=atr*stopMult;
+    if (!(risk>0)) continue;
+    const stop=side==='long' ? entry-risk : entry+risk;
+    const target=side==='long' ? entry+rMultiple*risk : entry-rMultiple*risk;
+    eligible++;
+    let outcome=0;
+    for(let j=i+1;j<=Math.min(bars.length-1,i+horizon);j++){
+      const b=bars[j];
+      const stopHit=side==='long' ? b.l<=stop : b.h>=stop;
+      const targetHit=side==='long' ? b.h>=target : b.l<=target;
+      if(stopHit){outcome=-1;break;} // conservative if both levels are crossed in the same bar
+      if(targetHit){outcome=1;break;}
+    }
+    if(outcome===1) targetFirst++;
+    else if(outcome===-1) stopFirst++;
+    else unresolved++;
+  }
+  return {eligible,targetFirst,stopFirst,unresolved,rate:eligible?100*targetFirst/eligible:null};
+}
+function renderTradeDesk() {
+  const out = document.getElementById('tradeOutput');
+  if (!out || !state.a) return;
+  const bars=state.a.bars, n=bars.length, last=bars[n-1], side=$('#tdSide').value;
+  const equity=Math.max(0,Number($('#tdEquity').value)||0);
+  const riskPct=Math.min(5,Math.max(0,Number($('#tdRisk').value)||0));
+  const stopMult=Number($('#tdAtr').value)||1.5, horizon=Number($('#tdHorizon').value)||20;
+  const costsPct=Math.max(0,Number($('#tdCosts').value)||0)/100;
+  const entryInput=Number($('#tdEntry').value), entry=(entryInput>0?entryInput:last.c);
+  const override=Number($('#tdStop').value), atr=calcATR14(bars,n-1);
+  if (!(atr>0) || !(entry>0)) { out.innerHTML='<p class="msg">Cannot calculate a plan: check prices and OHLC data.</p>'; return; }
+  const long=side==='long', sign=long?1:-1;
+  const autoStop=entry-sign*atr*stopMult;
+  let stop=override>0?override:autoStop;
+  const stopDist=Math.abs(entry-stop);
+  const stopValid=long?stop<entry:stop>entry;
+  if(!stopValid || stopDist<=0 || !isFinite(stopDist)){
+    out.innerHTML='<p class="msg">Invalid stop: a long stop must be below entry and a short stop above entry. Correct the override.</p>'; return;
+  }
+  const riskCash=equity*riskPct/100, qtyRisk=Math.floor(riskCash/stopDist);
+  const qtyCapital=Math.floor(equity/entry), qty=Math.max(0,Math.min(qtyRisk,qtyCapital));
+  const exposure=qty*entry, grossRisk=qty*stopDist, costCash=exposure*costsPct;
+  const levels=[1,2,3].map(r=>{
+    const target=entry+sign*stopDist*r;
+    const odds=tradeProbability(bars,side,stopMult,horizon,r,atr);
+    const gross=qty*Math.abs(target-entry), net=gross-costCash-gross*costsPct;
+    return {r,target,move:100*(target/entry-1),odds,net};
+  });
+  const fmtIN=x=>Number.isFinite(x)?x.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2}):'—';
+  const pctIN=x=>Number.isFinite(x)?(x>=0?'+':'')+x.toFixed(2)+'%':'—';
+  const status=document.getElementById('tradeStatus');
+  status.textContent=`${n} bars · ATR(14) ₹${fmtIN(atr)} · ${last.d?dFull(last.d):'undated data'}`;
+  const kpis=[
+    ['Reference close',`₹${fmtIN(last.c)}`],
+    ['Planned entry',`₹${fmtIN(entry)}`],
+    ['Stop loss',`₹${fmtIN(stop)} (${pctIN(100*(stop/entry-1))})`],
+    ['ATR(14)',`₹${fmtIN(atr)}`],
+    ['Shares by risk',String(qty)],
+    ['Position value',`₹${fmtIN(exposure)}`],
+    ['Estimated loss at stop',`₹${fmtIN(grossRisk)}`],
+    ['Account risk used',equity?`${(100*grossRisk/equity).toFixed(2)}%`:'—']
+  ];
+  let html='<div class="trade-kpis">'+kpis.map(k=>`<div class="trade-kpi"><span>${k[0]}</span><b>${k[1]}</b></div>`).join('')+'</div>';
+  html+='<h2 style="margin-top:18px">Target ladder &amp; historical target-first rate</h2><div style="overflow-x:auto"><table class="trade-table"><thead><tr><th>Target</th><th>Price</th><th>Move</th><th>R:R</th><th>Target first</th><th>Sample</th><th>Est. net P/L*</th></tr></thead><tbody>';
+  levels.forEach(x=>{
+    const o=x.odds;
+    html+=`<tr><td>${x.r}R</td><td>₹${fmtIN(x.target)}</td><td>${pctIN(x.move)}</td><td>1:${x.r.toFixed(1)}</td><td>${o.rate===null?'n/a':o.rate.toFixed(1)+'%'}</td><td>${o.eligible}</td><td>₹${fmtIN(x.net)}</td></tr>`;
+  });
+  html+='</tbody></table></div>';
+  const rsi=state.a.ind.rsi[n-1], sma20=state.a.ind.sma20[n-1], sma50=state.a.ind.sma50[n-1];
+  const trText=(sma20&&sma50)?(last.c>sma20&&sma20>sma50?'Bull trend alignment':last.c<sma20&&sma20<sma50?'Bear trend alignment':'Mixed trend alignment'):'Insufficient moving-average history';
+  html+=`<div class="trade-kpis" style="margin-top:10px">
+    <div class="trade-kpi"><span>Trend filter</span><b>${trText}</b></div>
+    <div class="trade-kpi"><span>RSI (14)</span><b>${rsi===null?'n/a':rsi.toFixed(1)}</b></div>
+    <div class="trade-kpi"><span>20-bar SMA</span><b>${sma20?'₹'+fmtIN(sma20):'n/a'}</b></div>
+    <div class="trade-kpi"><span>50-bar SMA</span><b>${sma50?'₹'+fmtIN(sma50):'n/a'}</b></div>
+  </div>`;
+  const best=levels[1].odds;
+  html+=`<p class="trade-note" style="margin-top:10px"><b>Interpretation:</b> ${best.rate===null?'Not enough historical observations to estimate target-first rate.':`The 2R target was reached before the stop in ${best.targetFirst} of ${best.eligible} eligible historical analogs (${best.rate.toFixed(1)}%) within ${horizon} bars.`} This is a descriptive in-sample frequency, not a calibrated forecast. No trade should be taken solely from this percentage. *Net P/L is a rough cost estimate using the cost/slippage input; taxes, impact and gap risk may differ.</p>`;
+  if(n<100) html+='<p class="msg">Caution: fewer than 100 bars. Pattern and historical target-rate estimates may be unstable.</p>';
+  if(!state.meta.hasVolume) html+='<p class="msg">Volume is absent. Breakout-volume confirmation and liquidity checks are unavailable.</p>';
+  out.innerHTML=html;
+}
+
+
+
+function cleanSym(s) { return String(s || '').toUpperCase().replace(/^NSE:|^BSE:/, '').replace(/\.(NS|BO)$/, '').replace(/[^A-Z0-9&-]/g, ''); }
+function renderLinks() {
+  const sym = cleanSym($('#symbol').value), q = encodeURIComponent(sym), box = $('#links');
+  const market = $('#market') ? $('#market').value : 'NSE';
+  const yfSuffix = market === 'NSE' ? '.NS' : market === 'BSE' ? '.BO' : '';
+  const tvMarket = market === 'US' ? 'NASDAQ' : market;
+  const L = [
+    // Official NSE security-wise archives supports 5Y and CSV export.
+    ['NSE 5-year history — Download CSV', 'https://www.nseindia.com/report-detail/eq_security', 'official NSE archive · select symbol, choose 5Y, then Download (.csv)', true],
+    ['NSE price history — Download CSV', 'https://www.nseindia.com/historical/price-and-volume-data-per-security', 'official NSE page · enter security, choose date range, tap Download (.csv)', true],
+    ['NSE daily reports — Bhavcopy CSV/ZIP', 'https://www.nseindia.com/all-reports', 'official NSE reports · choose Common Bhavcopy ZIP or Full Bhavcopy CSV', true],
+    [sym ? `NSE quote: ${sym}` : 'NSE quote', `https://www.nseindia.com/get-quotes/equity?symbol=${q}`, 'quote / security details', !!sym && market === 'NSE'],
+    [sym ? `Yahoo Finance: ${sym}${yfSuffix} — 5-year history / CSV` : 'Yahoo Finance — 5-year history / CSV', `https://finance.yahoo.com/quote/${q}${yfSuffix}/history/?period1=${Math.floor((Date.now()-5*365.25*24*60*60*1000)/1000)}&period2=${Math.floor(Date.now()/1000)}`, 'five-year daily history; use Download to save CSV (NSE/BSE symbols may vary by provider)', !!sym],
+    ['BSE historical data — CSV page', 'https://www.bseindia.com/markets/MarketInfo/BhavCopy.aspx', 'official BSE historical / bhavcopy data', true],
+    [sym ? `TradingView: ${sym}` : 'TradingView', `https://www.tradingview.com/symbols/${tvMarket}-${q}/`, 'chart', !!sym]
+  ];
+  box.innerHTML = L.map(([t, u, s, on]) => `<a href="${on ? u : '#'}" target="_blank" rel="noopener noreferrer" ${on ? '' : 'aria-disabled="true" tabindex="-1"'}>${esc(t)}<small>${s}</small></a>`).join('');
+}
+
+/* ---------- wiring ---------- */
+const sel = $('#sample');
+sel.innerHTML = Object.keys(SAMPLES).map(k => `<option value="${k}">${esc(SAMPLES[k].label)}</option>`).join('') + '<option value="" hidden>Your data</option>';
+sel.addEventListener('change', () => { if (sel.value) loadSample(sel.value); });
+async function ensureXLSX(){
+  if(window.XLSX) return window.XLSX;
+  if(window.__offlineOnly) throw new Error('Offline-only mode is on. Turn it off in Privacy & security to load the Excel reader, or save the sheet as CSV.');
+  if(window.__xlsxLoading) return window.__xlsxLoading;
+  window.__xlsxLoading = new Promise((resolve,reject)=>{
+    const script=document.createElement('script');
+    script.src='https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+    script.onload=()=>window.XLSX?resolve(window.XLSX):reject(new Error('Excel reader did not initialize.'));
+    script.onerror=()=>reject(new Error('Excel reader library could not load. For .xlsx files, connect to the internet or save the sheet as CSV.'));
+    document.head.appendChild(script);
+  });
+  return window.__xlsxLoading;
+}
+function workbookToCSV(wb){
+  const name=wb.SheetNames.find(n=>wb.Sheets[n]&&wb.Sheets[n]['!ref'])||wb.SheetNames[0];
+  if(!name) throw new Error('Workbook has no readable worksheet.');
+  return window.XLSX.utils.sheet_to_csv(wb.Sheets[name],{blankrows:false});
+}
+$('#file').addEventListener('change', async e => {
+  const f=e.target.files&&e.target.files[0]; if(!f)return;
+  const ext=(f.name.split('.').pop()||'').toLowerCase();
+  try {
+    if(ext==='xlsx'||ext==='xls'){
+      showMsg('Reading Excel workbook…');
+      const X=await ensureXLSX();
+      const data=await f.arrayBuffer();
+      const wb=X.read(data,{type:'array',cellDates:true});
+      const csv=workbookToCSV(wb);
+      if(!csv.trim()) throw new Error('The first populated worksheet is empty.');
+      loadText(csv,f.name.replace(/\.[^.]+$/,''));
+    } else {
+      const text=await f.text();
+      loadText(text,f.name.replace(/\.[^.]+$/,''));
+    }
+  } catch(err){showMsg(err.message||'That file could not be read.');}
+  finally {e.target.value='';}
+});
+$('#pasteBtn').addEventListener('click', () => { const b = $('#pasteBox'); b.hidden = !b.hidden; $('#pasteBtn').setAttribute('aria-expanded', String(!b.hidden)); if (!b.hidden) $('#pasteArea').focus(); });
+$('#pasteGo').addEventListener('click', () => loadText($('#pasteArea').value, ''));
+$('#autoLoad').addEventListener('click', autoLoadSymbol);
+$('#symbol').addEventListener('keydown', e => { if (e.key === 'Enter') autoLoadSymbol(); });
+$('#market').addEventListener('change', renderLinks);
+$('#symbol').addEventListener('input', e => { state.label = cleanSym(e.target.value) || state.label; renderLinks(); if (state.a) { renderOutlook(); } });
+let rz = null;
+if (window.ResizeObserver) new ResizeObserver(() => { clearTimeout(rz); rz = setTimeout(() => { if (state.a) drawChart(); }, 80); }).observe($('#chartWrap'));
+
+
+
+/* ---------- market-wide screener + Murphy-inspired technical checklist ---------- */
+let scanStopRequested = false, lastScanRows = [], lastToolkitRows = [];
+const SCAN_UNIVERSES = {
+ NSE: {all:'RELIANCE.NS,TCS.NS,HDFCBANK.NS,ICICIBANK.NS,INFY.NS,ITC.NS,SBIN.NS,BHARTIARTL.NS,LT.NS,AXISBANK.NS,KOTAKBANK.NS,BAJFINANCE.NS,MARUTI.NS,SUNPHARMA.NS,TATAMOTORS.NS,TATASTEEL.NS,NTPC.NS,POWERGRID.NS,ONGC.NS,ASIANPAINT.NS,ULTRACEMCO.NS,TITAN.NS,ADANIPORTS.NS,COALINDIA.NS,WIPRO.NS',large:'RELIANCE.NS,TCS.NS,HDFCBANK.NS,ICICIBANK.NS,INFY.NS,ITC.NS,SBIN.NS,BHARTIARTL.NS,LT.NS,AXISBANK.NS,KOTAKBANK.NS,BAJFINANCE.NS,MARUTI.NS,SUNPHARMA.NS,NTPC.NS,POWERGRID.NS,ONGC.NS,ULTRACEMCO.NS,TITAN.NS',mid:'POLYCAB.NS,INDHOTEL.NS,COFORGE.NS,MPHASIS.NS,AUROPHARMA.NS,ASTRAL.NS,PIIND.NS,OBEROIRLTY.NS,MFSL.NS,IDFCFIRSTB.NS,INDUSTOWER.NS,PRESTIGE.NS,ABCAPITAL.NS,ASHOKLEY.NS,ZEAL.NS',small:'CLEAN.NS,ANURAS.NS,RAINBOW.NS,DOMS.NS,BSOFT.NS,SONATSOFTW.NS,MASTEK.NS,ROUTE.NS,NETWORK18.NS,TEJASNET.NS,IRCON.NS,RVNL.NS,HUDCO.NS,NBCC.NS,HFCL.NS',micro:'IDEA.NS,SUZLON.NS,JPPOWER.NS,YESBANK.NS,RCOM.NS,SAIL.NS,TRIDENT.NS,IRFC.NS,IOC.NS,PNB.NS'},
+ BSE: {all:'RELIANCE.BO,TCS.BO,HDFCBANK.BO,ICICIBANK.BO,INFY.BO,ITC.BO,SBIN.BO,BHARTIARTL.BO,LT.BO,AXISBANK.BO,KOTAKBANK.BO,BAJFINANCE.BO,MARUTI.BO,SUNPHARMA.BO,TATAMOTORS.BO',large:'RELIANCE.BO,TCS.BO,HDFCBANK.BO,ICICIBANK.BO,INFY.BO,ITC.BO,SBIN.BO,BHARTIARTL.BO,LT.BO,AXISBANK.BO,KOTAKBANK.BO,BAJFINANCE.BO,MARUTI.BO,SUNPHARMA.BO',mid:'POLYCAB.BO,INDHOTEL.BO,COFORGE.BO,MPHASIS.BO,ASTRAL.BO,IDFCFIRSTB.BO,INDUSTOWER.BO,ASHOKLEY.BO',small:'CLEAN.BO,BSOFT.BO,MASTEK.BO,ROUTE.BO,TEJASNET.BO,IRCON.BO,RVNL.BO,NBCC.BO,HFCL.BO',micro:'IDEA.BO,SUZLON.BO,JPPOWER.BO,YESBANK.BO,TRIDENT.BO,IRFC.BO,PNB.BO'},
+ US: {all:'AAPL,MSFT,NVDA,AMZN,GOOGL,META,AVGO,TSLA,BRK-B,JPM,LLY,WMT,ORCL,COST,AMD,NFLX,CRM,ADBE,INTC,CSCO,PLTR,QQQ,SPY',large:'AAPL,MSFT,NVDA,AMZN,GOOGL,META,AVGO,TSLA,BRK-B,JPM,LLY,WMT,ORCL,COST,AMD,NFLX,CRM,ADBE,CSCO',mid:'HOOD,SOFI,DKNG,DECK,CHWY,DUOL,ONON,AFRM,ROKU,PATH,ETSY,LYFT,UPST',small:'IONQ,JOBY,ACHR,ASTS,OPEN,PLUG,CHPT,LCID,RIVN,QS,ENVX,CLSK',micro:'KULR,OPTT,SERV,BNGO,CTXR,FFIE,MLGO'}
+};
+async function fetchYahooChart(ticker, range='2y') {
+ const url='https://query1.finance.yahoo.com/v8/finance/chart/'+encodeURIComponent(ticker)+'?range='+encodeURIComponent(range)+'&interval=1d&events=div%2Csplits';
+ try {
+  const r=await fetch(url,{cache:'no-store'});
+  if(!r.ok) throw new Error('HTTP '+r.status);
+  const j=await r.json();
+  if(!j || !j.chart) throw new Error('Unexpected response format');
+  if(j.chart.error) throw new Error(j.chart.error.description||'Provider reported an error');
+  if(!j.chart.result?.[0]?.timestamp?.length) throw new Error('No history returned');
+  return j;
+ } catch(e) {
+  const detail=e?.message||String(e);
+  throw new Error('Could not retrieve '+ticker+' directly from Yahoo Finance ('+detail+'). For privacy, this app does not send your symbol to public proxy services. Try again later or download the historical CSV from NSE and upload it instead.');
+ }
+}
+async function fetchBarsForScan(ticker){const j=await fetchYahooChart(ticker,'2y'),x=j?.chart?.result?.[0],q=x?.indicators?.quote?.[0];if(!x||!q||!x.timestamp)throw new Error('No data');const out=[];for(let i=0;i<x.timestamp.length;i++){const c=q.close?.[i];if(!Number.isFinite(c))continue;const o=Number.isFinite(q.open?.[i])?q.open[i]:c;out.push({i:out.length,d:new Date(x.timestamp[i]*1000),o,h:Number.isFinite(q.high?.[i])?q.high[i]:Math.max(o,c),l:Number.isFinite(q.low?.[i])?q.low[i]:Math.min(o,c),c,v:q.volume?.[i]||0});}if(out.length<100)throw new Error('Less than 100 daily bars');return out;}
+const fmtN = (x, d=2) => Number.isFinite(x) ? x.toLocaleString('en-IN',{maximumFractionDigits:d,minimumFractionDigits:d}) : '—';
+const pctN = x => Number.isFinite(x) ? (x>=0?'+':'')+fmtN(x,2)+'%' : '—';
+function smaAt(a,n,i=a.length-1){ if(i-n+1<0)return NaN; let s=0;for(let j=i-n+1;j<=i;j++)s+=a[j];return s/n; }
+function emaSeries(a,n){const out=Array(a.length).fill(NaN);if(a.length<n)return out;let e=a.slice(0,n).reduce((x,y)=>x+y,0)/n;out[n-1]=e;const k=2/(n+1);for(let i=n;i<a.length;i++){e=a[i]*k+e*(1-k);out[i]=e;}return out;}
+function rsiAt(c,n=14){if(c.length<n+1)return NaN;let g=0,l=0;for(let i=c.length-n;i<c.length;i++){const d=c[i]-c[i-1];if(d>0)g+=d;else l-=d;}return l===0?100:100-100/(1+(g/n)/(l/n));}
+function atrAt(b,n=14){if(b.length<n+1)return NaN;let vals=[];for(let i=b.length-n;i<b.length;i++)vals.push(Math.max(b[i].h-b[i].l,Math.abs(b[i].h-b[i-1].c),Math.abs(b[i].l-b[i-1].c)));return vals.reduce((a,x)=>a+x,0)/n;}
+function analyseBars(symbol,b){
+ const c=b.map(x=>x.c), last=b[b.length-1], s20=smaAt(c,20),s50=smaAt(c,50),s200=smaAt(c,200),rsi=rsiAt(c),atr=atrAt(b),e12=emaSeries(c,12),e26=emaSeries(c,26),macd=e12.at(-1)-e26.at(-1),sig=emaSeries(e12.map((x,i)=>Number.isFinite(x)&&Number.isFinite(e26[i])?x-e26[i]:0).slice(-35),9).at(-1);
+ const vols=b.slice(-20).map(x=>x.v).filter(x=>x>0),vavg=vols.length?vols.reduce((a,x)=>a+x,0)/vols.length:NaN,vr=last.v>0&&vavg>0?last.v/vavg:NaN;
+ const high20=Math.max(...b.slice(-21,-1).map(x=>x.h)),low20=Math.min(...b.slice(-21,-1).map(x=>x.l));
+ const ret20=c.length>20?(last.c/c[c.length-21]-1)*100:NaN,ret63=c.length>63?(last.c/c[c.length-64]-1)*100:NaN;
+ let score=0, reasons=[]; if(last.c>s20){score+=10;reasons.push('Above SMA20');}if(s20>s50){score+=15;reasons.push('SMA20 > SMA50');}if(Number.isFinite(s200)&&last.c>s200){score+=15;reasons.push('Above SMA200');}if(Number.isFinite(s200)&&s50>s200){score+=10;reasons.push('SMA50 > SMA200');}if(rsi>=50&&rsi<=70){score+=10;reasons.push('RSI bullish range');}else if(rsi>70){score+=3;reasons.push('RSI overbought risk');}if(macd>0&&macd>=sig){score+=10;reasons.push('MACD positive/rising');}if(Number.isFinite(vr)&&vr>=1.3){score+=10;reasons.push('Volume confirmation');}if(last.c>high20){score+=15;reasons.push('20-day closing breakout');}else if(last.c>high20*.98){score+=5;reasons.push('Near 20-day high');}if(Number.isFinite(ret63)&&ret63>0){score+=5;reasons.push('Positive 3-month return');}
+ const range=last.c?atr/last.c*100:NaN;
+ return {symbol,close:last.c,date:last.d?last.d.toISOString().slice(0,10):'',score:Math.min(100,score),s20,s50,s200,rsi,macd,macdSignal:sig,atr,atrPct:range,vr,ret20,ret63,high20,low20,signal:score>=70?'Strong trend setup':score>=50?'Watchlist':'Weak/mixed',reasons,bars:b};
+}
+async function fetchBarsForScan(ticker){const url='https://query1.finance.yahoo.com/v8/finance/chart/'+encodeURIComponent(ticker)+'?range=2y&interval=1d';const r=await fetch(url,{cache:'no-store'});if(!r.ok)throw new Error('HTTP '+r.status);const j=await r.json(),x=j?.chart?.result?.[0],q=x?.indicators?.quote?.[0];if(!x||!q||!x.timestamp)throw new Error(j?.chart?.error?.description||'No data');const out=[];for(let i=0;i<x.timestamp.length;i++){const c=q.close?.[i];if(!Number.isFinite(c))continue;const o=Number.isFinite(q.open?.[i])?q.open[i]:c;out.push({i:out.length,d:new Date(x.timestamp[i]*1000),o,h:Number.isFinite(q.high?.[i])?q.high[i]:Math.max(o,c),l:Number.isFinite(q.low?.[i])?q.low[i]:Math.min(o,c),c,v:q.volume?.[i]||0});}if(out.length<200)throw new Error('Less than 200 daily bars');return out;}
+function escH(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+async function runMarketScan(){const market=$('#scanMarket').value;let raw=$('#scanSymbols').value.trim();const cap=$('#scanCap')?.value||'all';let tickers=(raw?raw.split(/[\s,;]+/):(SCAN_UNIVERSES[market][cap]||SCAN_UNIVERSES[market].all).split(',')).filter(Boolean).map(x=>x.toUpperCase());tickers=[...new Set(tickers)].slice(0,60).map(t=>{if(market==='NSE'&&!/\.(NS|BO)$/.test(t))return t+'.NS';if(market==='BSE'&&!/\.(NS|BO)$/.test(t))return t+'.BO';return t;});if(!tickers.length){$('#scanStatus').textContent='Enter at least one ticker.';return;}scanStopRequested=false;$('#scanGo').disabled=true;$('#scanStop').disabled=false;$('#exportScan').disabled=true;lastScanRows=[];const errors=[];$('#scanResults').innerHTML='';
+ for(let i=0;i<tickers.length;i++){if(scanStopRequested)break;$('#scanStatus').textContent=`Fetching ${i+1}/${tickers.length}: ${tickers[i]}…`;try{const bars=await fetchBarsForScan(tickers[i]);lastScanRows.push(analyseBars(tickers[i],bars));}catch(e){errors.push(tickers[i]+': '+e.message);}renderScanRows();await new Promise(r=>setTimeout(r,180));}
+ $('#scanGo').disabled=false;$('#scanStop').disabled=true;$('#exportScan').disabled=!lastScanRows.length;$('#scanStatus').textContent=`Finished ${lastScanRows.length} stocks; ${errors.length} skipped${scanStopRequested?' (stopped early)':''}.`+(errors.length?' First issue: '+errors[0]:'')+(lastScanRows.length===0?' — all data routes failed; try fewer symbols or retry later.':'');renderScanRows();}
+function renderScanRows(){const min=Number($('#scanMin').value||0),rows=lastScanRows.filter(x=>x.score>=min).sort((a,b)=>b.score-a.score);if(!rows.length){$('#scanResults').innerHTML='<p class="empty">No qualifying stocks yet. Data may be loading or unavailable.</p>';return;}$('#scanResults').innerHTML='<table style="width:100%;border-collapse:collapse;min-width:850px;font-size:13px"><thead><tr>'+['Rank','Symbol','Close','Score','Signal','RSI(14)','vs 20D high','Vol / 20D avg','ATR %','3M return','Reasons / caveats','Load chart'].map(x=>'<th style="text-align:left;padding:8px;border-bottom:1px solid var(--line)">'+x+'</th>').join('')+'</tr></thead><tbody>'+rows.map((x,i)=>'<tr><td style="padding:8px;border-bottom:1px solid var(--line)">'+(i+1)+'</td><td style="padding:8px;border-bottom:1px solid var(--line)"><b>'+escH(x.symbol)+'</b></td><td style="padding:8px;border-bottom:1px solid var(--line)">'+fmtN(x.close)+'</td><td style="padding:8px;border-bottom:1px solid var(--line)"><b>'+x.score+'/100</b></td><td style="padding:8px;border-bottom:1px solid var(--line)">'+escH(x.signal)+'</td><td style="padding:8px;border-bottom:1px solid var(--line)">'+fmtN(x.rsi)+'</td><td style="padding:8px;border-bottom:1px solid var(--line)">'+(x.close>x.high20?'Breakout':fmtN((x.close/x.high20-1)*100)+'%')+'</td><td style="padding:8px;border-bottom:1px solid var(--line)">'+fmtN(x.vr)+'×</td><td style="padding:8px;border-bottom:1px solid var(--line)">'+fmtN(x.atrPct)+'%</td><td style="padding:8px;border-bottom:1px solid var(--line)">'+pctN(x.ret63)+'</td><td style="padding:8px;border-bottom:1px solid var(--line);max-width:280px">'+escH(x.reasons.join(' · '))+'</td><td style="padding:8px;border-bottom:1px solid var(--line)"><button class="btn" data-loadscan="'+escH(x.symbol)+'">Analyse</button></td></tr>').join('')+'</tbody></table>';$('#scanResults').querySelectorAll('[data-loadscan]').forEach(b=>b.addEventListener('click',()=>{let t=b.getAttribute('data-loadscan');$('#market').value=/\.BO$/.test(t)?'BSE':/\.NS$/.test(t)?'NSE':'US';$('#symbol').value=t.replace(/\.(NS|BO)$/,'');autoLoadSymbol();window.scrollTo({top:0,behavior:'smooth'});}));}
+function calcToolkit(){if(!state?.a?.bars?.length){$('#toolkitResults').innerHTML='<p class="empty">Load a stock chart first.</p>';return;}const b=state.a.bars,c=b.map(x=>x.c),last=b.at(-1),s20=smaAt(c,20),s50=smaAt(c,50),s200=smaAt(c,200),rsi=rsiAt(c),atr=atrAt(b),e12=emaSeries(c,12),e26=emaSeries(c,26),m=e12.at(-1)-e26.at(-1),prevm=e12.at(-2)-e26.at(-2),vols=b.slice(-20).map(x=>x.v).filter(x=>x>0),vavg=vols.length?vols.reduce((a,x)=>a+x,0)/vols.length:NaN,vr=last.v&&vavg?last.v/vavg:NaN;const hi=Math.max(...b.slice(-21,-1).map(x=>x.h)),lo=Math.min(...b.slice(-21,-1).map(x=>x.l)),hi52=Math.max(...b.slice(-Math.min(252,b.length)).map(x=>x.h)),lo52=Math.min(...b.slice(-Math.min(252,b.length)).map(x=>x.l)),diff=hi52-lo52;const rows=[];const add=(group,tool,value,read,detail='')=>rows.push({group,tool,value,read,detail});add('Trend / Dow-style','Close vs SMA20',fmtN(last.c-s20),last.c>s20?'Positive':'Negative','Closing price relative to 20-day average');add('Trend / Dow-style','SMA20 vs SMA50',fmtN(s20-s50),s20>s50?'Bullish alignment':'Bearish alignment','Short-term trend vs medium-term trend');add('Trend / Dow-style','Close vs SMA200',fmtN(last.c-s200),last.c>s200?'Long-term uptrend':'Below long-term average','200-day average is unavailable on short history');add('Momentum','RSI (14)',fmtN(rsi),rsi>70?'Overbought zone':rsi<30?'Oversold zone':rsi>=50?'Positive momentum':'Weak momentum','Oscillator should be interpreted in trend context');add('Momentum','MACD line',fmtN(m),m>0?'Above zero':'Below zero','EMA12 − EMA26; change vs prior bar '+(m>=prevm?'rising':'falling'));add('Volume','Latest volume / 20D avg',fmtN(vr)+'×',vr>=1.5?'High-volume confirmation':vr>=1?'At/above average':'Below average','Volume missing or zero means this reading is unavailable');add('Volatility','ATR (14)',fmtN(atr),fmtN(atr/last.c*100)+'% of price','Average true range, not a directional signal');add('Breakout / range','20-day high / low',fmtN(Math.max(...b.slice(-20).map(x=>x.h)))+' / '+fmtN(Math.min(...b.slice(-20).map(x=>x.l)),2),last.c>hi?'Above recent range':last.c<lo?'Below recent range':'Inside recent range','Daily close breakout needs confirmation');add('Long-term range','52-week high / low',fmtN(hi52)+' / '+fmtN(lo52),diff>0?fmtN((last.c-lo52)/diff*100)+'% of range':'—','Position within available 252-bar range');const fib=[0.236,0.382,0.5,0.618,0.786].map(f=>({f,price:hi52-diff*f}));add('Fibonacci','Retracement levels',fib.map(x=>Math.round(x.f*100)+'% '+fmtN(x.price)).join(' · '),'Reference levels','Calculated from 252-bar high to low; not proof of support');const prev=b.at(-2)||last,pp=(prev.h+prev.l+prev.c)/3;add('Levels','Prior-day pivot / R1 / S1',fmtN(pp)+' / '+fmtN(2*pp-prev.l)+' / '+fmtN(2*pp-prev.h),'Reference levels','Classic floor pivots from prior completed candle');add('Risk','ATR stop reference',fmtN(last.c-1.5*atr)+' long / '+fmtN(last.c+1.5*atr)+' short','Volatility-scaled','Illustrative 1.5× ATR from latest close; gaps can exceed stops');
+ rows.forEach(x=>{let action='Use as context; no trade from this alone.';const r=String(x.read).toLowerCase(),t=String(x.tool).toLowerCase();if(t==='close vs sma20'||t==='sma20 vs sma50'||t==='close vs sma200'){action=/positive|bullish|long-term uptrend/.test(r)?'Supports LONG bias; confirm with other signals.':/negative|bearish|below/.test(r)?'Supports caution / SHORT bias; confirm breakdown.':'Wait; trend is unclear.';}else if(t==='rsi (14)'){action=r.includes('overbought')?'Avoid chasing buys; wait for a pullback.':r.includes('oversold')?'Do not buy just because it is oversold; wait for reversal confirmation.':r.includes('positive')?'Supports LONG only if trend agrees.':'Momentum is weak; be cautious with LONG trades.';}else if(t==='macd line'){action=r.includes('above zero')?'Supports LONG if trend and price confirm.':'Supports caution / SHORT only if price confirms weakness.';}else if(t==='latest volume / 20d avg'){action=r.includes('high-volume')?'Breakout/breakdown may be better confirmed.':'Wait for stronger volume confirmation.';}else if(t==='20-day high / low'){action=r.includes('above recent range')?'Potential LONG trigger; prefer a close above the level with volume.':r.includes('below recent range')?'Potential SHORT trigger where permitted; confirm the breakdown.':'Wait for a clear range breakout.';}else if(t==='atr stop reference'){action='Use the stop as a guide, then calculate position size; never ignore gap risk.';}else if(t.includes('fibonacci')||t.includes('pivot')){action='Treat as a possible support/resistance area, not an automatic entry.';}else if(t==='atr (14)'){action='Use to judge volatility and set a sensible stop distance; not a direction signal.';}else if(t==='52-week high / low'){action='Check whether price is near resistance or support before entering.';}x.action=action;});
+ lastToolkitRows=rows;$('#toolkitResults').innerHTML='<p class="hint" style="margin:8px 0">Simple rule: trade with the trend, wait for price confirmation, and always decide your stop-loss before entering. These are educational signals, not guaranteed predictions.</p><div style="overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;min-width:900px"><thead><tr>'+['Framework','Measure','Value','Reading','Interpretation','What should I do?'].map(x=>'<th style="text-align:left;padding:8px;border-bottom:1px solid var(--line)">'+x+'</th>').join('')+'</tr></thead><tbody>'+rows.map(x=>'<tr>'+[x.group,x.tool,x.value,x.read,x.detail,x.action].map(v=>'<td style="padding:8px;border-bottom:1px solid var(--line);vertical-align:top">'+escH(v)+'</td>').join('')+'</tr>').join('')+'</tbody></table></div>';}
+function downloadCSV(name,rows){if(!rows.length)return;const keys=Object.keys(rows[0]),csv=[keys.join(','),...rows.map(r=>keys.map(k=>'"'+String(r[k]??'').replace(/"/g,'""')+'"').join(','))].join('\r\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8;'}));a.download=name;a.click();URL.revokeObjectURL(a.href);}
+$('#scanGo').addEventListener('click',runMarketScan);$('#scanStop').addEventListener('click',()=>{scanStopRequested=true;$('#scanStatus').textContent='Stopping after the current request…';});$('#scanMin').addEventListener('change',renderScanRows);$('#refreshToolkit').addEventListener('click',calcToolkit);$('#exportToolkit').addEventListener('click',()=>downloadCSV('technical-checklist.csv',lastToolkitRows));$('#exportScan').addEventListener('click',()=>downloadCSV('market-scan.csv',lastScanRows.map(({bars,reasons,...x})=>({...x,reasons:reasons.join('; ')}))));
+
+['tdSide','tdEquity','tdRisk','tdAtr','tdEntry','tdStop','tdHorizon','tdCosts'].forEach(id => {
+  const el=document.getElementById(id);
+  if(el) el.addEventListener('input', renderTradeDesk);
+  if(el) el.addEventListener('change', renderTradeDesk);
+});
+
+renderLinks(); sel.value = 'cup'; loadSample('cup');
+})();
+</script>
+<script>
+// Install support is available when hosted over HTTPS (or localhost).
+(function(){
+  const btn=document.getElementById('installAppBtn');
+  let deferredPrompt=null;
+  window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();deferredPrompt=e;btn.hidden=false;});
+  btn.addEventListener('click',async function(){
+    if(deferredPrompt){deferredPrompt.prompt();await deferredPrompt.userChoice;deferredPrompt=null;btn.hidden=true;}
+    else { alert('To install: host this app package on HTTPS, open it in your browser, then choose “Add to Home Screen” or “Install app”.'); }
+  });
+  window.addEventListener('appinstalled',function(){btn.hidden=true;});
+  if('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
+    window.addEventListener('load',function(){navigator.serviceWorker.register('./sw.js').catch(function(){/* app still works without offline cache */});});
+  }
+})();
+</script>
+
+<script>
+(function(){
+  var $=function(id){return document.getElementById(id)},de=document.documentElement;
+  var KEY='ssa_privacy',P={};
+  try{P=JSON.parse(localStorage.getItem(KEY)||'{}')}catch(e){P={}}
+  var D={lockDelay:0,idle:0,wipe:false,cover:true,mask:false,offline:false};
+  Object.keys(D).forEach(function(k){if(P[k]===undefined)P[k]=D[k]});
+  function save(){try{localStorage.setItem(KEY,JSON.stringify(P))}catch(e){}}
+  function msg(t,bad){var m=$('pMsg');m.textContent=t;m.style.color=bad?'var(--down)':'var(--up)'}
+  var enc=new TextEncoder(),hasCrypto=!!(window.crypto&&crypto.subtle);
+  function hex(b){return Array.prototype.map.call(new Uint8Array(b),function(x){return('0'+x.toString(16)).slice(-2)}).join('')}
+  function unhex(s){var a=new Uint8Array(s.length/2);for(var i=0;i<a.length;i++)a[i]=parseInt(s.substr(i*2,2),16);return a}
+  async function derive(pin,salt,iter){
+    var k=await crypto.subtle.importKey('raw',enc.encode(pin),'PBKDF2',false,['deriveBits']);
+    return hex(await crypto.subtle.deriveBits({name:'PBKDF2',hash:'SHA-256',salt:salt,iterations:iter},k,256));
+  }
+  function same(a,b){if(a.length!==b.length)return false;var r=0;for(var i=0;i<a.length;i++)r|=a.charCodeAt(i)^b.charCodeAt(i);return r===0}
+
+  /* ---- Lock / unlock ---- */
+  function hasPin(){return !!(P.pin&&P.pin.hash)}
+  function lockNow(){
+    if(!hasPin())return;
+    if(P.wipe){location.reload();de.classList.add('locked');return}
+    de.classList.add('locked');$('lockPin').value='';$('lockErr').textContent='';
+    try{document.activeElement&&document.activeElement.blur()}catch(e){}
+    var pb=$('pasteBox');if(pb){var t=pb.querySelector('textarea');if(t)t.value=''}
+    setTimeout(function(){$('lockPin').focus()},50);updateLockoutText();
+  }
+  function lockoutLeft(){return Math.max(0,Math.ceil(((P.lockUntil||0)-Date.now())/1000))}
+  function updateLockoutText(){
+    var s=lockoutLeft();
+    if(s>0){$('lockErr').textContent='Too many attempts. Try again in '+s+'s.';setTimeout(function(){if(lockoutLeft()>0)updateLockoutText();else $('lockErr').textContent=''},1000)}
+  }
+  async function tryUnlock(){
+    if(lockoutLeft()>0){updateLockoutText();return}
+    var pin=$('lockPin').value;if(!pin)return;
+    var ok=false;
+    try{ok=same(await derive(pin,unhex(P.pin.salt),P.pin.iter),P.pin.hash)}catch(e){}
+    if(ok){P.fails=0;P.lockUntil=0;save();$('lockPin').value='';$('lockErr').textContent='';de.classList.remove('locked');resetIdle()}
+    else{
+      P.fails=(P.fails||0)+1;
+      if(P.fails>=5){P.lockUntil=Date.now()+30000*Math.pow(2,Math.min(P.fails-5,6));}
+      save();$('lockPin').value='';
+      $('lockErr').textContent='Incorrect PIN.';updateLockoutText();
+    }
+  }
+  $('lockGo').addEventListener('click',tryUnlock);
+  $('lockPin').addEventListener('keydown',function(e){if(e.key==='Enter')tryUnlock()});
+  $('lockReset').addEventListener('click',function(){
+    if(confirm('This erases the PIN and all app settings on this device. Continue?'))eraseAll();
+  });
+
+  /* ---- PIN setup ---- */
+  function refreshPinUi(){
+    $('pinState').textContent=hasPin()?'On: app asks for your PIN on open':(hasCrypto?'Off':'Unavailable: needs a secure (HTTPS) connection');
+    $('pinToggle').textContent=hasPin()?'Remove PIN':'Set PIN';
+    $('pinToggle').disabled=!hasCrypto&&!hasPin();
+  }
+  $('pinToggle').addEventListener('click',function(){
+    if(hasPin()){
+      var cur=prompt('Enter your current PIN to remove app lock');
+      if(cur===null)return;
+      derive(cur,unhex(P.pin.salt),P.pin.iter).then(function(h){
+        if(same(h,P.pin.hash)){delete P.pin;P.fails=0;P.lockUntil=0;save();refreshPinUi();msg('App lock removed.')}
+        else msg('Incorrect PIN.',true);
+      });
+    }else{$('pinForm').hidden=!$('pinForm').hidden}
+  });
+  $('pinSave').addEventListener('click',async function(){
+    var a=$('pinNew').value,b=$('pinNew2').value;
+    if(!/^\d{4,8}$/.test(a)){msg('PIN must be 4 to 8 digits.',true);return}
+    if(a!==b){msg('PINs do not match.',true);return}
+    var salt=crypto.getRandomValues(new Uint8Array(16)),iter=200000;
+    P.pin={salt:hex(salt),iter:iter,hash:await derive(a,salt,iter)};P.fails=0;P.lockUntil=0;save();
+    $('pinNew').value='';$('pinNew2').value='';$('pinForm').hidden=true;refreshPinUi();msg('PIN saved. The app will lock based on your settings.');
+  });
+
+  /* ---- Auto-lock, idle, cover ---- */
+  var hiddenAt=0,idleTimer=null;
+  function resetIdle(){
+    clearTimeout(idleTimer);
+    if(P.idle>0&&hasPin()&&!de.classList.contains('locked'))idleTimer=setTimeout(lockNow,P.idle*1000);
+  }
+  ['pointerdown','keydown','scroll','touchstart'].forEach(function(ev){document.addEventListener(ev,resetIdle,{passive:true,capture:true})});
+  function cover(on){if(P.cover)de.classList.toggle('covered',on)}
+  document.addEventListener('visibilitychange',function(){
+    if(document.hidden){
+      cover(true);hiddenAt=Date.now();
+      if(hasPin()&&P.lockDelay===0)lockNow();
+    }else{
+      if(hasPin()&&P.lockDelay>0&&hiddenAt&&(Date.now()-hiddenAt)/1000>=P.lockDelay)lockNow();
+      cover(false);hiddenAt=0;resetIdle();
+    }
+  });
+  window.addEventListener('blur',function(){cover(true)});
+  window.addEventListener('focus',function(){if(!document.hidden)cover(false)});
+  window.addEventListener('pagehide',function(){cover(true)});
+  window.addEventListener('pageshow',function(){cover(false)});
+
+  /* ---- Toggles ---- */
+  function bind(id,key,fn,num){
+    var el=$(id);
+    if(el.type==='checkbox')el.checked=!!P[key];else el.value=String(P[key]);
+    el.addEventListener('change',function(){
+      P[key]=el.type==='checkbox'?el.checked:Number(el.value);save();if(fn)fn();
+    });
+  }
+  bind('lockDelay','lockDelay');
+  bind('idleLock','idle',resetIdle);
+  bind('wipeOnLock','wipe');
+  bind('coverOn','cover');
+  bind('maskOn','mask',function(){de.classList.toggle('mask-figures',P.mask)});
+  bind('offlineOn','offline',function(){
+    window.__offlineOnly=P.offline;
+    msg(P.offline?'Offline-only mode on: no internet requests will be made.':'Offline-only mode off: live price fetch is allowed again.');
+  });
+  window.__offlineOnly=!!P.offline;
+  de.classList.toggle('mask-figures',!!P.mask);
+
+  /* Block network requests when offline-only is on */
+  var _fetch=window.fetch;
+  window.fetch=function(u,o){
+    if(window.__offlineOnly){
+      var url=typeof u==='string'?u:(u&&u.url)||'';
+      try{if(new URL(url,location.href).origin!==location.origin)return Promise.reject(new TypeError('Blocked by Offline-only mode (Privacy & security). Upload a CSV or paste data instead.'))}catch(e){}
+    }
+    return _fetch.apply(this,arguments);
+  };
+
+  /* ---- Erase everything ---- */
+  async function eraseAll(){
+    try{localStorage.clear();sessionStorage.clear()}catch(e){}
+    try{if(window.caches){var ks=await caches.keys();await Promise.all(ks.map(function(k){return caches.delete(k)}))}}catch(e){}
+    try{if(navigator.serviceWorker){var rs=await navigator.serviceWorker.getRegistrations();await Promise.all(rs.map(function(r){return r.unregister()}))}}catch(e){}
+    try{if(indexedDB.databases){var dbs=await indexedDB.databases();dbs.forEach(function(d){indexedDB.deleteDatabase(d.name)})}}catch(e){}
+    location.reload();
+  }
+  $('wipeAll').addEventListener('click',function(){
+    if(confirm('Erase the PIN, all settings and cached files from this device and restart the app?'))eraseAll();
+  });
+
+  /* ---- Header lock button ---- */
+  var hb=document.createElement('button');hb.className='btn';hb.type='button';hb.id='lockBtn';hb.textContent='🔒 Lock';hb.hidden=!hasPin();
+  hb.addEventListener('click',lockNow);
+  var ib=$('installAppBtn');if(ib&&ib.parentNode)ib.parentNode.insertBefore(hb,ib);
+  var _ref=refreshPinUi;refreshPinUi=function(){_ref();hb.hidden=!hasPin()};
+  refreshPinUi();
+  if(de.classList.contains('locked'))setTimeout(function(){$('lockPin').focus()},100);
+  resetIdle();
+})();
+</script>
+</body></html>
